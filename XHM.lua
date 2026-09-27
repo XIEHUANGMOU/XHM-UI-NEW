@@ -255,6 +255,10 @@ function Util.customAsset(source, cacheKey)
 			error("下载结果为空")
 		end
 		local ext = source:match("%.([%w]+)$")
+		if not ext then
+			local pathOnly = source:match("^[^?#]*") or source
+			ext = pathOnly:match("%.([%w]+)$")
+		end
 		if not ext or #ext > 4 then
 			ext = "png"
 		end
@@ -884,6 +888,38 @@ XHM.Credits = "Icons: Lucide (ISC) https://lucide.dev | Roblox data: latte-soft/
 XHM.Icons = Icons
 XHM.Theme = Theme
 XHM.Util = Util
+local B = "https://raw.githubusercontent.com/XIEHUANGMOU/UI-BackGround/main/"
+local I = "https://raw.githubusercontent.com/XIEHUANGMOU/UI_Icon/main/"
+local S = "https://raw.githubusercontent.com/XIEHUANGMOU/UI-Sound/main/"
+XHM.Assets = {
+	Repo = {
+		Background = B,
+		Icon = I,
+		Sound = S,
+	},
+	Background = {
+		Snow = B .. "Snow-Background.png",
+		ChineseWallpaper = B .. "Chinese-wallpaper.png",
+		Ultraman = B .. "Ultraman_TIGA.jpg",
+		Amine = B .. "amine1st.png",
+		Eva = B .. "eva-cartoon-character.png",
+		Yechi = B .. "Yechi_icon.png",
+		ScriptIcon = B .. "HMOU%20SCRIPT%20ICON.png",
+	},
+	Icon = {
+		Search = I .. "Search_Icon.png",
+		Correct = I .. "Correct_icon.png",
+		Ultra = I .. "XHM_Ultra_Icon.jpg",
+	},
+	IconMap = {
+		search = I .. "Search_Icon.png",
+		check = I .. "Correct_icon.png",
+	},
+	Sound = {
+		Notify = S .. "notify_sound.mp3",
+		Error = S .. "error-UI-sound.mp3",
+	},
+}
 XHM.Shadow = {
 	supported = shadowSupported,
 	Window = { Blur = 20, Transparency = 0.30, Drop = 8, Spread = -3, Radius = 10 },
@@ -912,6 +948,12 @@ function XHM.new(config)
 	self._destroyed = false
 	self._locked = config.Locked == true
 	self._visible = true
+	self._sounds = {}
+	for name, source in pairs(config.Sounds or {}) do
+		if type(source) == "string" and source ~= "" then
+			self._sounds[name] = source
+		end
+	end
 	if config.Accent then
 		Theme.Accent = config.Accent
 	end
@@ -974,6 +1016,23 @@ function XHM.new(config)
 		self:SetOutline(false)
 	end
 	self._mainScale = Util.create("UIScale", { Name = "WindowScale", Scale = 1, Parent = main })
+	local bg = Util.create("ImageLabel", {
+		Name = "WindowBackground",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ImageTransparency = 1,
+		Visible = false,
+		ZIndex = 0,
+		Parent = main,
+	})
+	Util.corner(bg, 10)
+	self._bgImage = bg
+	if config.Background then
+		self:SetBackground(config.Background, {
+			Fit = config.BackgroundFit,
+			Transparency = config.BackgroundTransparency,
+		})
+	end
 	if config.Shadow ~= false then
 		self._shadowTwin, self._shadow = Util.shadowTwin(
 			main, self.Screen, self:_shadowStyle(), self._connections)
@@ -1157,7 +1216,12 @@ function XHM:_buildTitleBar()
 		btn.MouseButton1Up:Connect(function()
 			Util.tween(fx, 0.3, { Scale = 1.16 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 		end)
-		btn.MouseButton1Click:Connect(onClick)
+		btn.MouseButton1Click:Connect(function(...)
+			self:PlaySound("Click")
+			if onClick then
+				onClick(...)
+			end
+		end)
 		table.insert(buttons, btn)
 		return btn, icon, fx
 	end
@@ -1551,6 +1615,65 @@ function XHM:SetLauncherImage(source)
 	end
 	return nil
 end
+function XHM:SetBackground(source, opts)
+	opts = opts or {}
+	local img = self._bgImage
+	if not img then
+		return nil
+	end
+	if not source or source == "" then
+		img.Visible = false
+		img.Image = ""
+		return nil
+	end
+	local asset = Util.customAsset(source)
+	if not asset then
+		img.Visible = false
+		warn("[XHM] 窗口背景图加载失败（需要执行器的 writefile + getcustomasset）: "
+			.. tostring(source))
+		return nil
+	end
+	img.Image = asset
+	if opts.Fit ~= nil then
+		img.ScaleType = (opts.Fit == "fit") and Enum.ScaleType.Fit or Enum.ScaleType.Crop
+	end
+	img.ImageTransparency = opts.Transparency or 0.25
+	img.Visible = true
+	return asset
+end
+function XHM:SetSound(name, source)
+	self._sounds = self._sounds or {}
+	self._sounds[name] = source
+	self._soundAssets = self._soundAssets or {}
+	self._soundAssets[name] = nil
+	return source
+end
+function XHM:PlaySound(name, volume)
+	local source = self._sounds and self._sounds[name]
+	if not source or self._destroyed then
+		return nil
+	end
+	local asset = Util.customAsset(source)
+	if not asset then
+		warn("[XHM] 音效加载失败: " .. tostring(name) .. " <- " .. tostring(source))
+		return nil
+	end
+	local sound = Util.create("Sound", {
+		Name = "XHM_Sound_" .. tostring(name),
+		SoundId = asset,
+		Volume = volume or self.Config.SoundVolume or 0.5,
+		Parent = self.Screen,
+	})
+	sound:Play()
+	local function cleanup()
+		if sound.Parent then
+			sound:Destroy()
+		end
+	end
+	sound.Ended:Connect(cleanup)
+	task.delay(20, cleanup)
+	return sound
+end
 function XHM:_buildLauncher()
 	local size = self.Config.LauncherSize or 46
 	local launcher = Util.create("TextButton", {
@@ -1607,6 +1730,7 @@ function XHM:_buildLauncher()
 		if dragged then
 			return
 		end
+		self:PlaySound("Click")
 		self:SetVisible(true)
 	end)
 	self:OnAccent(function(color)
@@ -3628,6 +3752,13 @@ function Notification:update(cfg)
 		self._soundSource = cfg.Sound
 		self._soundVolume = cfg.SoundVolume
 		self:_playSound(cfg.Sound, cfg.SoundVolume)
+	elseif self._window and type(self._window._sounds) == "table" then
+		local src = (self.Type == "error" and self._window._sounds.Error)
+			or self._window._sounds.Notify
+		if src and src ~= self._soundSource then
+			self._soundSource = src
+			self:_playSound(src, cfg.SoundVolume)
+		end
 	end
 	self._elapsed = 0
 	self:_applyStyle()
@@ -3878,10 +4009,14 @@ function XHM:_createNotification(cfg)
 	notification:_setContent(cfg.Content)
 	notification:_paintProgress()
 	notification:_setBackground(cfg.Background, cfg)
-	if cfg.Sound then
-		notification._soundSource = cfg.Sound
+	local soundSource = cfg.Sound
+	if not soundSource and type(self._sounds) == "table" then
+		soundSource = (cfg.Type == "error" and self._sounds.Error) or self._sounds.Notify
+	end
+	if soundSource then
+		notification._soundSource = soundSource
 		notification._soundVolume = cfg.SoundVolume
-		notification:_playSound(cfg.Sound, cfg.SoundVolume)
+		notification:_playSound(soundSource, cfg.SoundVolume)
 	end
 	hit.MouseButton1Click:Connect(function()
 		if notification._dismissed then
@@ -4166,7 +4301,12 @@ function XHM:Confirm(cfg)
 		btn.MouseButton1Up:Connect(function()
 			Util.tween(btnScale, 0.26, { Scale = 1.06 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 		end)
-		btn.MouseButton1Click:Connect(onClick)
+		btn.MouseButton1Click:Connect(function(...)
+			self:PlaySound("Click")
+			if onClick then
+				onClick(...)
+			end
+		end)
 		return btn
 	end
 	local closing = false
