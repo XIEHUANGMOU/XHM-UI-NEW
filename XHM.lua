@@ -1945,16 +1945,18 @@ function XHM:Tab(tabConfig)
 		Parent = subInner,
 	})
 	Util.create("UIPadding", {
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
-		PaddingTop = UDim.new(0, 6),
-		PaddingBottom = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, SUBBAR_PAD_X),
+		PaddingRight = UDim.new(0, SUBBAR_PAD_X),
+		PaddingTop = UDim.new(0, SUBBAR_PAD_Y),
+		PaddingBottom = UDim.new(0, SUBBAR_PAD_Y),
 		Parent = subInner,
 	})
 	tab.SubTabBar = subBar
 	tab._subPill = subPill
 	tab._subInner = subInner
 	local SUBBAR_HEIGHT = 40
+	local SUBBAR_PAD_X = 12
+	local SUBBAR_PAD_Y = 6
 	function tab:_applyPaneLayout()
 		local h = (#self._subTabs > 0) and SUBBAR_HEIGHT or 0
 		local function place(left, right, twoCol)
@@ -1995,7 +1997,11 @@ function XHM:Tab(tabConfig)
 		subPill.Visible = true
 		local duration = instant and 0 or 0.18
 		Util.tween(subPill, duration, {
-			Position = sub.Button.Position,
+			Position = UDim2.new(
+				sub.Button.Position.X.Scale,
+				sub.Button.Position.X.Offset + SUBBAR_PAD_X,
+				0,
+				sub.Button.Position.Y.Offset + SUBBAR_PAD_Y),
 			Size = sub.Button.Size,
 		})
 	end
@@ -2070,9 +2076,21 @@ function XHM:Tab(tabConfig)
 		function sub:Select()
 			self.Tab:SelectSubTab(self)
 		end
+		local textW = 0
+		local okSize, measured = pcall(function()
+			return game:GetService("TextService"):GetTextSize(
+				sub.Name, 12, Enum.Font.GothamMedium, Vector2.new(1000, 20))
+		end)
+		if okSize and measured and measured.X then
+			textW = measured.X
+		else
+			textW = #sub.Name * 11
+		end
+		local iconW = sub.IconName and 20 or 0
+		local btnW = math.max(64, 10 + iconW + textW + 12)
 		local btn = Util.create("TextButton", {
 			Name = "SubTab_" .. sub.Name,
-			Size = UDim2.new(0, 80, 1, -12),
+			Size = UDim2.new(0, btnW, 1, -12),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
@@ -2080,15 +2098,15 @@ function XHM:Tab(tabConfig)
 			Parent = tab._subInner,
 		})
 		Util.corner(btn, 6)
-		local tx = 10
+		local tx = 11
 		if sub.IconName then
 			sub.Icon = Icons.new(btn, sub.IconName, {
 				Size = UDim2.fromOffset(14, 14),
-				Position = UDim2.new(0, 9, 0.5, 0),
+				Position = UDim2.new(0, 10, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				Color = Theme.SubText,
 			})
-			tx = 28
+			tx = 30
 		end
 		sub.Label = Util.create("TextLabel", {
 			BackgroundTransparency = 1,
@@ -2097,7 +2115,7 @@ function XHM:Tab(tabConfig)
 			Text = sub.Name,
 			TextColor3 = Theme.SubText,
 			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Center,
+			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			Parent = btn,
 		})
@@ -2117,10 +2135,6 @@ function XHM:Tab(tabConfig)
 			end
 		end)
 		table.insert(self._subTabs, sub)
-		local count = #self._subTabs
-		for i, s in ipairs(self._subTabs) do
-			s.Button.Size = UDim2.new(1 / count, -(6 * (count - 1) / count), 1, -12)
-		end
 		self:_applyPaneLayout()
 		Util.tween(subBar, 0.2, { Size = UDim2.new(1, 0, 0, SUBBAR_HEIGHT) })
 		if #self._subTabs == 1 then
@@ -4227,21 +4241,21 @@ function XHM:_renderSearchResults(query)
 		end
 	end
 	local matches = self:_searchMatches(query)
-	local root = self.Screen
 	local shown = 0
 	if #matches == 0 then
-		local hint = Util.create("TextLabel", {
-			Name = "Empty",
-			Size = UDim2.new(1, 0, 0, 60),
-			BackgroundTransparency = 1,
-			Text = query == "" and ("共 " .. tostring(#(self._registry or {})) .. " 个组件，输入关键字开始搜索")
-				or "没有匹配的组件",
-			TextColor3 = Theme.Muted,
-			TextSize = 12,
-			LayoutOrder = 1,
-			Parent = p.List,
-		})
-		Util.font(hint, "Regular")
+		if query ~= "" then
+			local hint = Util.create("TextLabel", {
+				Name = "Empty",
+				Size = UDim2.new(1, 0, 0, 60),
+				BackgroundTransparency = 1,
+				Text = "没有匹配的组件",
+				TextColor3 = Theme.Muted,
+				TextSize = 12,
+				LayoutOrder = 1,
+				Parent = p.List,
+			})
+			Util.font(hint, "Regular")
+		end
 		return 0
 	end
 	for i, e in ipairs(matches) do
