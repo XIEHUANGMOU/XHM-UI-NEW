@@ -1009,6 +1009,18 @@ function XHM.new(config)
 	assert(type(config) == "table", "[XHM] new() 需要 table 参数")
 	local self = setmetatable({}, XHM)
 	self.Config = config
+	config.Author = config.Author or config.Subtitle
+	config.Subtitle = config.Subtitle or config.Author
+	if config.BackgroundTransparency == nil then
+		config.BackgroundTransparency = config.BackgroundImageTransparency
+	end
+	if config.BackgroundImageTransparency == nil then
+		config.BackgroundImageTransparency = config.BackgroundTransparency
+	end
+	if config.Theme ~= nil and config.Theme ~= "Dark" then
+		warn("[XHM] 目前只有 Dark 主题，Theme = " .. tostring(config.Theme) .. " 已忽略")
+	end
+	config.Folder = config.Folder or "XHM-NEW-UI"
 	self.Flags = {}
 	self._flagComponents = {}
 	self._flagListeners = {}
@@ -1042,7 +1054,12 @@ function XHM.new(config)
 	local margin = 24
 	local maxW = math.max(viewport.X - margin, 240)
 	local maxH = math.max(viewport.Y - margin, 200)
+	if config.MaxSize then
+		maxW = math.min(maxW, config.MaxSize.X)
+		maxH = math.min(maxH, config.MaxSize.Y)
+	end
 	self._maxSize = Vector2.new(maxW, maxH)
+	self._railWidth = config.SideBarWidth or Theme.RailWidth
 	local wantMin = config.MinSize or Vector2.new(360, 260)
 	self._minSize = Vector2.new(
 		math.min(wantMin.X, maxW),
@@ -1140,7 +1157,7 @@ function XHM.new(config)
 	self.Rail = Util.create("Frame", {
 		Name = "TabRail",
 		Position = UDim2.new(0, 0, 0, Theme.TitleHeight),
-		Size = UDim2.new(0, Theme.RailWidth, 1, -Theme.TitleHeight),
+		Size = UDim2.new(0, self._railWidth, 1, -Theme.TitleHeight),
 		BackgroundColor3 = Theme.Surface,
 		BackgroundTransparency = 0.35,
 		BorderSizePixel = 0,
@@ -1159,8 +1176,8 @@ function XHM.new(config)
 	})
 	self.Container = Util.create("Frame", {
 		Name = "Pages",
-		Position = UDim2.new(0, Theme.RailWidth, 0, Theme.TitleHeight),
-		Size = UDim2.new(1, -Theme.RailWidth, 1, -Theme.TitleHeight),
+		Position = UDim2.new(0, self._railWidth, 0, Theme.TitleHeight),
+		Size = UDim2.new(1, -self._railWidth, 1, -Theme.TitleHeight),
 		BackgroundTransparency = 1,
 		Parent = main,
 	})
@@ -1186,6 +1203,7 @@ function XHM.new(config)
 	end
 	self:_bindToggleKey(config.ToggleKey)
 	self:_buildLauncher()
+	self:_buildUser()
 	self:_initSearch()
 	if self._keySystem then
 		self:_buildKeyGate()
@@ -1221,7 +1239,7 @@ function XHM.new(config)
 	main.BackgroundTransparency = 0.7
 	Util.tween(main, 0.3, {
 		Size = targetSize,
-		BackgroundTransparency = 0,
+		BackgroundTransparency = config.Transparent and 0.3 or 0,
 	}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	return self
 end
@@ -1341,9 +1359,11 @@ function XHM:_buildTitleBar()
 	self.HideButton, self._hideIcon = addButton("eye-off", 4, function()
 		self:SetVisible(false)
 	end)
-	self.SearchButton = addButton("search", 5, function()
-		self:ToggleSearch()
-	end)
+	if not self.Config.HideSearchBar then
+		self.SearchButton = addButton("search", 5, function()
+			self:ToggleSearch()
+		end)
+	end
 	local tagBar = Util.create("Frame", {
 		Name = "TagBar",
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -1982,7 +2002,7 @@ function XHM:Tab(tabConfig)
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 2,
+		ScrollBarThickness = (self.Config.ScrollBarEnabled == false) and 0 or 2,
 		ScrollBarImageColor3 = Theme.StrokeLight,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Parent = page,
@@ -2007,7 +2027,7 @@ function XHM:Tab(tabConfig)
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 2,
+		ScrollBarThickness = (self.Config.ScrollBarEnabled == false) and 0 or 2,
 		ScrollBarImageColor3 = Theme.StrokeLight,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Visible = false,
@@ -2160,7 +2180,7 @@ function XHM:Tab(tabConfig)
 				BorderSizePixel = 0,
 				CanvasSize = UDim2.new(),
 				AutomaticCanvasSize = Enum.AutomaticSize.Y,
-				ScrollBarThickness = 2,
+				ScrollBarThickness = (self.Window.Config.ScrollBarEnabled == false) and 0 or 2,
 				ScrollBarImageColor3 = Theme.StrokeLight,
 				ScrollingDirection = Enum.ScrollingDirection.Y,
 				Visible = false,
@@ -4399,7 +4419,7 @@ function XHM:_buildSearchPanel()
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 2,
+		ScrollBarThickness = (self.Config.ScrollBarEnabled == false) and 0 or 2,
 		ScrollBarImageColor3 = Theme.StrokeLight,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
 		ZIndex = 52,
@@ -4706,6 +4726,21 @@ function XHM:_buildKeyGate()
 			})
 			Util.corner(thumb, 8)
 		end
+		if thumbCfg.Title and thumbCfg.Title ~= "" then
+			local thumbTitle = Util.create("TextLabel", {
+				Name = "ThumbnailTitle",
+				Size = UDim2.new(1, 0, 0, 16),
+				BackgroundTransparency = 1,
+				Text = tostring(thumbCfg.Title),
+				TextColor3 = Theme.Muted,
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				LayoutOrder = 0,
+				ZIndex = 33,
+				Parent = body,
+			})
+			Util.font(thumbTitle, "Regular")
+		end
 	end
 	local title = Util.create("TextLabel", {
 		Name = "Title",
@@ -4934,6 +4969,125 @@ function XHM:SubmitKey(key)
 	end
 	return ok, message
 end
+function XHM:_buildUser()
+	local cfg = self.Config.User
+	if type(cfg) ~= "table" or cfg.Enabled == false then
+		self.User = nil
+		return nil
+	end
+	local player = LOCAL_PLAYER
+	local display = "未登录"
+	if player then
+		display = player.DisplayName or player.Name or display
+	end
+	local railWidth = self._railWidth or Theme.RailWidth
+	local box = Util.create("Frame", {
+		Name = "UserBox",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 8, 1, -8),
+		Size = UDim2.new(0, railWidth - 16, 0, 34),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Parent = self.Main,
+	})
+	Util.corner(box, 7)
+	local avatar = Util.create("ImageLabel", {
+		Name = "Avatar",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 6, 0.5, 0),
+		Size = UDim2.fromOffset(22, 22),
+		BackgroundColor3 = Theme.SurfaceHover,
+		BorderSizePixel = 0,
+		Image = "",
+		Parent = box,
+	})
+	Util.corner(avatar, 11)
+	local label = Util.create("TextLabel", {
+		Name = "Name",
+		Position = UDim2.new(0, 34, 0, 0),
+		Size = UDim2.new(1, -40, 1, 0),
+		BackgroundTransparency = 1,
+		Text = display,
+		TextColor3 = Theme.SubText,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = box,
+	})
+	Util.font(label, "Medium")
+	local hit = Util.create("TextButton", {
+		Name = "Hit",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = box,
+	})
+	local user = {
+		Instance = box,
+		Avatar = avatar,
+		Label = label,
+		Anonymous = cfg.Anonymous == true,
+		Callback = cfg.Callback,
+	}
+	local function applyAnonymous()
+		if user.Anonymous then
+			label.Text = "匿名"
+			avatar.Image = ""
+			return
+		end
+		label.Text = display
+		if avatar.Image == "" and player and player.UserId then
+			local ok, asset = pcall(function()
+				return Players:GetUserThumbnailAsync(player.UserId,
+					Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+			end)
+			if ok and type(asset) == "string" then
+				avatar.Image = asset
+			end
+		end
+	end
+	applyAnonymous()
+	function user:Enable()
+		box.Visible = true
+		return user
+	end
+	function user:Disable()
+		box.Visible = false
+		return user
+	end
+	function user:IsEnabled()
+		return box.Visible == true
+	end
+	function user:SetAnonymous(value)
+		user.Anonymous = value and true or false
+		applyAnonymous()
+		return user
+	end
+	function user:SetCallback(fn)
+		user.Callback = fn
+		return user
+	end
+	function user:SetName(text)
+		display = tostring(text or display)
+		applyAnonymous()
+		return user
+	end
+	hit.MouseEnter:Connect(function()
+		Util.tween(box, 0.12, { BackgroundTransparency = 0.4 })
+	end)
+	hit.MouseLeave:Connect(function()
+		Util.tween(box, 0.12, { BackgroundTransparency = 1 })
+	end)
+	hit.MouseButton1Click:Connect(function()
+		if user.Callback then
+			task.spawn(user.Callback)
+		end
+	end)
+	self.User = user
+	return user
+end
 function XHM:Tag(cfg)
 	cfg = cfg or {}
 	if not self.TagBar then
@@ -5042,7 +5196,7 @@ function XHM:Tag(cfg)
 end
 function XHM:_initSearch()
 	self._registry = self._registry or {}
-	if self.Config.SearchKey == false then
+	if self.Config.SearchKey == false or self.Config.HideSearchBar then
 		return
 	end
 	local key = self.Config.SearchKey or Enum.KeyCode.F
