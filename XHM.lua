@@ -1913,57 +1913,42 @@ function XHM:Tab(tabConfig)
 	tab._subTabs = {}
 	tab._activeSubTab = nil
 	tab._twoColumn = false
-	local subBar = Util.create("Frame", {
-		Name = "SubTabBar",
+	local SUBITEM_HEIGHT = 28
+	local SUBITEM_GAP = 2
+	local SUBLIST_ANIM = 0.2
+	local tabWrap = Util.create("Frame", {
+		Name = "TabWrap_" .. tab.Name,
+		Size = UDim2.new(1, 0, 0, 34),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = #self._tabs + 1,
+		Parent = self.Rail,
+	})
+	Util.create("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = tabWrap,
+	})
+	local subList = Util.create("Frame", {
+		Name = "SubList",
 		Size = UDim2.new(1, 0, 0, 0),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
-		Parent = page,
-	})
-	local subPill = Util.create("Frame", {
-		Name = "Pill",
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.18,
-		BorderSizePixel = 0,
-		Visible = false,
-		ZIndex = 0,
-		Parent = subBar,
-	})
-	Util.corner(subPill, 6)
-	local subInner = Util.create("Frame", {
-		Name = "Inner",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		ZIndex = 1,
-		Parent = subBar,
+		LayoutOrder = 2,
+		Parent = tabWrap,
 	})
 	Util.create("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 6),
+		Padding = UDim.new(0, SUBITEM_GAP),
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Parent = subInner,
+		Parent = subList,
 	})
-	Util.create("UIPadding", {
-		PaddingLeft = UDim.new(0, SUBBAR_PAD_X),
-		PaddingRight = UDim.new(0, SUBBAR_PAD_X),
-		PaddingTop = UDim.new(0, SUBBAR_PAD_Y),
-		PaddingBottom = UDim.new(0, SUBBAR_PAD_Y),
-		Parent = subInner,
-	})
-	tab.SubTabBar = subBar
-	tab._subPill = subPill
-	tab._subInner = subInner
-	local SUBBAR_HEIGHT = 40
-	local SUBBAR_PAD_X = 12
-	local SUBBAR_PAD_Y = 6
+	tab.Wrap = tabWrap
+	tab.SubList = subList
 	function tab:_applyPaneLayout()
-		local h = (#self._subTabs > 0) and SUBBAR_HEIGHT or 0
 		local function place(left, right, twoCol)
-			left.Position = UDim2.new(0, 0, 0, h)
-			left.Size = UDim2.new(twoCol and 0.5 or 1, 0, 1, -h)
-			right.Position = UDim2.new(0.5, 0, 0, h)
-			right.Size = UDim2.new(0.5, 0, 1, -h)
+			left.Position = UDim2.new(0, 0, 0, 0)
+			left.Size = UDim2.new(twoCol and 0.5 or 1, 0, 1, 0)
+			right.Position = UDim2.new(0.5, 0, 0, 0)
+			right.Size = UDim2.new(0.5, 0, 1, 0)
 		end
 		place(self.Left, self.Right, self._twoColumn == true)
 		for _, s in ipairs(self._subTabs) do
@@ -1988,22 +1973,31 @@ function XHM:Tab(tabConfig)
 		end
 		return nil
 	end
-	function tab:_syncSubPill(instant)
-		local sub = self._activeSubTab
-		if not sub or not sub.Button then
-			subPill.Visible = false
-			return
+	function tab:IsSubListOpen()
+		return self._subOpen == true
+	end
+	function tab:SetSubListOpen(open, instant)
+		if #self._subTabs == 0 then
+			return false
 		end
-		subPill.Visible = true
-		local duration = instant and 0 or 0.18
-		Util.tween(subPill, duration, {
-			Position = UDim2.new(
-				sub.Button.Position.X.Scale,
-				sub.Button.Position.X.Offset + SUBBAR_PAD_X,
-				0,
-				sub.Button.Position.Y.Offset + SUBBAR_PAD_Y),
-			Size = sub.Button.Size,
+		open = open and true or false
+		if self._subOpen == open then
+			return open
+		end
+		self._subOpen = open
+		local h = #self._subTabs * SUBITEM_HEIGHT + (#self._subTabs - 1) * SUBITEM_GAP
+		Util.tween(subList, instant and 0 or SUBLIST_ANIM, {
+			Size = UDim2.new(1, 0, 0, open and h or 0),
 		})
+		if self.SubChevron then
+			Util.tween(self.SubChevron, instant and 0 or 0.18, {
+				Rotation = open and 90 or 0,
+			})
+		end
+		return open
+	end
+	function tab:ToggleSubList()
+		return self:SetSubListOpen(not self._subOpen)
 	end
 	function tab:SelectSubTab(sub, instant)
 		if self._activeSubTab == sub then
@@ -2014,17 +2008,15 @@ function XHM:Tab(tabConfig)
 			local active = (s == sub)
 			s.Left.Visible = active
 			s.Right.Visible = active and (s._twoColumn == true)
-			if s.Button then
-				Util.tween(s.Label, 0.15, { TextColor3 = active and Theme.Text or Theme.SubText })
-				Util.tween(s.Button, 0.15, {
-					BackgroundTransparency = active and 1 or 1,
-				})
-				if s.Icon then
-					s.Icon:setColor(active and Theme.Text or Theme.SubText)
-				end
-			end
+			Util.tween(s.Label, 0.15, { TextColor3 = active and Theme.Text or Theme.SubText })
+			Util.tween(s.Button, 0.15, {
+				BackgroundTransparency = active and 0.25 or 1,
+			})
+			Util.tween(s.Indicator, 0.15, {
+				Size = UDim2.new(0, 2, 0, active and 16 or 0),
+			})
 		end
-		self:_syncSubPill(instant)
+		self:SetSubListOpen(true)
 		return sub
 	end
 	function tab:SubTab(subConfig)
@@ -2042,8 +2034,8 @@ function XHM:Tab(tabConfig)
 		local function makePane(name, xScale, widthScale, padLeft, padRight)
 			local pane = Util.create("ScrollingFrame", {
 				Name = name,
-				Position = UDim2.new(xScale, 0, 0, SUBBAR_HEIGHT),
-				Size = UDim2.new(widthScale, 0, 1, -SUBBAR_HEIGHT),
+				Position = UDim2.new(xScale, 0, 0, 0),
+				Size = UDim2.new(widthScale, 0, 1, 0),
 				BackgroundTransparency = 1,
 				BorderSizePixel = 0,
 				CanvasSize = UDim2.new(),
@@ -2076,37 +2068,36 @@ function XHM:Tab(tabConfig)
 		function sub:Select()
 			self.Tab:SelectSubTab(self)
 		end
-		local textW = 0
-		local okSize, measured = pcall(function()
-			return game:GetService("TextService"):GetTextSize(
-				sub.Name, 12, Enum.Font.GothamMedium, Vector2.new(1000, 20))
-		end)
-		if okSize and measured and measured.X then
-			textW = measured.X
-		else
-			textW = #sub.Name * 11
-		end
-		local iconW = sub.IconName and 20 or 0
-		local btnW = math.max(64, 10 + iconW + textW + 12)
 		local btn = Util.create("TextButton", {
 			Name = "SubTab_" .. sub.Name,
-			Size = UDim2.new(0, btnW, 1, -12),
+			Size = UDim2.new(1, 0, 0, SUBITEM_HEIGHT),
+			BackgroundColor3 = Theme.SurfaceHover,
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
 			LayoutOrder = sub.LayoutOrder,
-			Parent = tab._subInner,
+			Parent = subList,
 		})
 		Util.corner(btn, 6)
-		local tx = 11
+		sub.Indicator = Util.create("Frame", {
+			Name = "Indicator",
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 12, 0.5, 0),
+			Size = UDim2.new(0, 2, 0, 0),
+			BackgroundColor3 = Theme.Accent,
+			BorderSizePixel = 0,
+			Parent = btn,
+		})
+		Util.corner(sub.Indicator, 1)
+		local tx = 24
 		if sub.IconName then
 			sub.Icon = Icons.new(btn, sub.IconName, {
-				Size = UDim2.fromOffset(14, 14),
-				Position = UDim2.new(0, 10, 0.5, 0),
+				Size = UDim2.fromOffset(13, 13),
+				Position = UDim2.new(0, 22, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
-				Color = Theme.SubText,
+				Color = Theme.Muted,
 			})
-			tx = 30
+			tx = 42
 		end
 		sub.Label = Util.create("TextLabel", {
 			BackgroundTransparency = 1,
@@ -2126,7 +2117,7 @@ function XHM:Tab(tabConfig)
 		end)
 		btn.MouseEnter:Connect(function()
 			if self._activeSubTab ~= sub then
-				Util.tween(btn, 0.12, { BackgroundColor3 = Theme.SurfaceHover, BackgroundTransparency = 0.4 })
+				Util.tween(btn, 0.12, { BackgroundTransparency = 0.55 })
 			end
 		end)
 		btn.MouseLeave:Connect(function()
@@ -2135,12 +2126,14 @@ function XHM:Tab(tabConfig)
 			end
 		end)
 		table.insert(self._subTabs, sub)
-		self:_applyPaneLayout()
-		Util.tween(subBar, 0.2, { Size = UDim2.new(1, 0, 0, SUBBAR_HEIGHT) })
+		if self.SubChevron then
+			self.SubChevron.Visible = true
+		end
 		if #self._subTabs == 1 then
 			self:SelectSubTab(sub, true)
-		else
-			self:_syncSubPill(true)
+		elseif self._subOpen then
+			self._subOpen = false
+			self:SetSubListOpen(true)
 		end
 		return sub
 	end
@@ -2151,6 +2144,9 @@ function XHM:Tab(tabConfig)
 		self.Window:SelectTab(self)
 	end
 	function tab:SetVisible(visible)
+		if self.Wrap then
+			self.Wrap.Visible = visible and true or false
+		end
 		self.Button.Visible = visible and true or false
 	end
 	local btn = Util.create("TextButton", {
@@ -2160,8 +2156,8 @@ function XHM:Tab(tabConfig)
 		BackgroundTransparency = 1,
 		Text = "",
 		AutoButtonColor = false,
-		LayoutOrder = #self._tabs + 1,
-		Parent = self.Rail,
+		LayoutOrder = 1,
+		Parent = tabWrap,
 	})
 	Util.corner(btn, 6)
 	local indicator = Util.create("Frame", {
@@ -2195,6 +2191,20 @@ function XHM:Tab(tabConfig)
 	tab.Icon = icon
 	tab.Label = label
 	tab.Indicator = indicator
+	local chevron = Util.create("TextLabel", {
+		Name = "SubChevron",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(14, 14),
+		BackgroundTransparency = 1,
+		Text = "›",
+		TextColor3 = Theme.Muted,
+		TextSize = 15,
+		Visible = false,
+		Parent = btn,
+	})
+	Util.font(chevron, "Medium")
+	tab.SubChevron = chevron
 	btn.MouseEnter:Connect(function()
 		if self._activeTab ~= tab then
 			Util.tween(btn, 0.12, { BackgroundTransparency = 0.5 })
@@ -2206,7 +2216,16 @@ function XHM:Tab(tabConfig)
 		end
 	end)
 	btn.MouseButton1Click:Connect(function()
-		self:SelectTab(tab)
+		if #tab._subTabs == 0 then
+			self:SelectTab(tab)
+			return
+		end
+		if self._activeTab ~= tab then
+			self:SelectTab(tab)
+			tab:SetSubListOpen(true)
+		else
+			tab:ToggleSubList()
+		end
 	end)
 	local iconScale = Util.create("UIScale", { Name = "FX", Scale = 1, Parent = icon.Instance })
 	btn.MouseButton1Down:Connect(function()
@@ -2233,6 +2252,9 @@ function XHM:SelectTab(tab, instant)
 		local active = (t == tab)
 		t.Page.Visible = active
 		if active then
+			if #t._subTabs > 0 then
+				t:SetSubListOpen(true)
+			end
 			Util.tween(t.Button, 0.15, { BackgroundTransparency = 0.15 })
 			Util.tween(t.Label, 0.15, { TextColor3 = Theme.Text })
 			t.Icon:setColor(Theme.Accent)
