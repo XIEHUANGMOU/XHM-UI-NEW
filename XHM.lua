@@ -2977,6 +2977,15 @@ function Section:Dropdown(cfg)
 		AutoButtonColor = false,
 		Parent = row.Header,
 	})
+	local panelClip = Util.create("Frame", {
+		Name = "PanelClip",
+		Size = UDim2.new(1, 0, 0, 0),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		LayoutOrder = 2,
+		Visible = false,
+		Parent = row.Instance,
+	})
 	local panel = Util.create("Frame", {
 		Name = "Panel",
 		Size = UDim2.new(1, 0, 0, 0),
@@ -2984,9 +2993,7 @@ function Section:Dropdown(cfg)
 		BackgroundColor3 = Theme.SurfaceAlt,
 		BackgroundTransparency = 0.15,
 		BorderSizePixel = 0,
-		LayoutOrder = 2,
-		Visible = false,
-		Parent = row.Instance,
+		Parent = panelClip,
 	})
 	Util.corner(panel, 6)
 	Util.create("UIListLayout", {
@@ -3047,6 +3054,9 @@ function Section:Dropdown(cfg)
 		Parent = listHolder,
 	})
 	local obj = { Flag = cfg.Flag, Options = {} }
+	obj.Panel = panel
+	obj.PanelClip = panelClip
+	obj.ArrowHolder = arrowHolder
 	local optionButtons = {}
 	local selected = {}
 	local expanded = false
@@ -3195,14 +3205,44 @@ function Section:Dropdown(cfg)
 		end
 		expanded = state
 		if state then
-			panel.Visible = true
-			panel.Size = UDim2.new(1, 0, 0, 0)
+			panelClip.Visible = true
+			panelClip.Size = UDim2.new(1, 0, 0, 0)
 			panel.BackgroundTransparency = 1
-			Util.tween(panel, 0.16, { BackgroundTransparency = 0.15 })
+			Util.tween(panel, 0.2, { BackgroundTransparency = 0.15 })
+			local target = panel.AbsoluteSize.Y
+			if target <= 0 then
+				target = #obj.Options * 28 + 8
+			end
+			Util.tween(panelClip, 0.22, {
+				Size = UDim2.new(1, 0, 0, target),
+			}, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 			Util.tween(arrowHolder, 0.2, { Rotation = 180 })
+			local entries = {}
+			for _, entry in pairs(optionButtons) do
+				table.insert(entries, entry)
+			end
+			table.sort(entries, function(a, b)
+				return a.Button.LayoutOrder < b.Button.LayoutOrder
+			end)
+			for i, entry in ipairs(entries) do
+				entry.Label.TextTransparency = 1
+				local delay = 0.035 * i
+				task.delay(delay, function()
+					if expanded then
+						Util.tween(entry.Label, 0.16, { TextTransparency = 0 })
+					end
+				end)
+			end
 		else
-			panel.Visible = false
+			Util.tween(panelClip, 0.16, {
+				Size = UDim2.new(1, 0, 0, 0),
+			}, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			Util.tween(arrowHolder, 0.2, { Rotation = 0 })
+			task.delay(0.18, function()
+				if not expanded then
+					panelClip.Visible = false
+				end
+			end)
 		end
 	end
 	function obj:Get()
@@ -4707,20 +4747,23 @@ function XHM:_createNotification(cfg)
 	local progress = Util.create("Frame", {
 		Name = "Progress",
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, -12, 1, 10),
-		Size = UDim2.new(1, 24, 0, 2),
+		Position = UDim2.new(0, 0, 1, 4),
+		Size = UDim2.new(1, -24, 0, 3),
 		BackgroundColor3 = Theme.Stroke,
-		BackgroundTransparency = 0.6,
+		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
 		Parent = inner,
 	})
+	Util.corner(progress, 2)
 	local fill = Util.create("Frame", {
 		Name = "Fill",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = accent,
+		BackgroundTransparency = 0.05,
 		BorderSizePixel = 0,
 		Parent = progress,
 	})
+	Util.corner(fill, 2)
 	local hit = Util.create("TextButton", {
 		Name = "Hit",
 		Position = UDim2.new(0, -12, 0, -10),
