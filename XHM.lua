@@ -1960,6 +1960,10 @@ function XHM:ToggleMinimize()
 			Size = UDim2.new(main.Size.X.Scale, main.Size.X.Offset, 0, titleH),
 		}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
 		self:_setGripVisible(false)
+		if self.User then
+			self._userWasEnabled = self.User:IsEnabled()
+			self.User:Disable()
+		end
 		task.delay(0.34, function()
 			if self._minimized and not self._destroyed then
 				rail.Visible = false
@@ -1976,6 +1980,9 @@ function XHM:ToggleMinimize()
 		Util.tween(main, 0.34, { Size = size },
 			Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 		self:_setGripVisible(true)
+		if self.User and self._userWasEnabled then
+			self.User:Enable()
+		end
 	end
 end
 function XHM:SetAccent(color)
