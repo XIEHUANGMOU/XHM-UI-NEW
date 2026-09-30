@@ -4678,31 +4678,34 @@ function XHM:_buildKeyGate()
 		Name = "KeyGate",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Color3.new(0, 0, 0),
-		BackgroundTransparency = 0.45,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 30,
 		Parent = self.Screen,
 	})
+	Util.tween(overlay, 0.22, { BackgroundTransparency = 0.55 })
 	local card = Util.create("Frame", {
 		Name = "Card",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0, 380, 0, 0),
+		Size = UDim2.new(0, 340, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Surface,
 		BorderSizePixel = 0,
 		ZIndex = 31,
 		Parent = overlay,
 	})
-	Util.corner(card, 10)
-	Util.stroke(card, Theme.Stroke, 1, 0.35)
+	Util.corner(card, 9)
+	Util.stroke(card, Theme.Stroke, 1, 0.5)
 	Util.shadowTwin(card, overlay, {
-		Blur = XHM.Shadow.Window.Blur,
-		Transparency = XHM.Shadow.Window.Transparency,
-		Drop = XHM.Shadow.Window.Drop,
-		Spread = XHM.Shadow.Window.Spread,
-		Radius = 10,
+		Blur = XHM.Shadow.Card.Blur,
+		Transparency = 0.72,
+		Drop = XHM.Shadow.Card.Drop,
+		Spread = XHM.Shadow.Card.Spread,
+		Radius = 9,
 	}, self._connections)
+	local cardScale = Util.create("UIScale", { Name = "KeyScale", Scale = 0.94, Parent = card })
+	gate.Scale = cardScale
 	local body = Util.create("Frame", {
 		Name = "Body",
 		Size = UDim2.new(1, 0, 0, 0),
@@ -4712,15 +4715,15 @@ function XHM:_buildKeyGate()
 		Parent = card,
 	})
 	Util.create("UIListLayout", {
-		Padding = UDim.new(0, 10),
+		Padding = UDim.new(0, 7),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = body,
 	})
 	Util.create("UIPadding", {
-		PaddingTop = UDim.new(0, 18),
-		PaddingBottom = UDim.new(0, 18),
-		PaddingLeft = UDim.new(0, 18),
-		PaddingRight = UDim.new(0, 18),
+		PaddingTop = UDim.new(0, 15),
+		PaddingBottom = UDim.new(0, 13),
+		PaddingLeft = UDim.new(0, 14),
+		PaddingRight = UDim.new(0, 14),
 		Parent = body,
 	})
 	local thumbCfg = ks.Thumbnail
@@ -4729,7 +4732,7 @@ function XHM:_buildKeyGate()
 		if asset then
 			local thumb = Util.create("ImageLabel", {
 				Name = "Thumbnail",
-				Size = UDim2.new(1, 0, 0, thumbCfg.Height or 120),
+				Size = UDim2.new(1, 0, 0, thumbCfg.Height or 64),
 				BackgroundTransparency = 1,
 				Image = asset,
 				ScaleType = (thumbCfg.Fit == "fit") and Enum.ScaleType.Fit or Enum.ScaleType.Crop,
@@ -4737,37 +4740,65 @@ function XHM:_buildKeyGate()
 				ZIndex = 33,
 				Parent = body,
 			})
-			Util.corner(thumb, 8)
-		end
-		if thumbCfg.Title and thumbCfg.Title ~= "" then
-			local thumbTitle = Util.create("TextLabel", {
-				Name = "ThumbnailTitle",
-				Size = UDim2.new(1, 0, 0, 16),
-				BackgroundTransparency = 1,
-				Text = tostring(thumbCfg.Title),
-				TextColor3 = Theme.Muted,
-				TextSize = 11,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				LayoutOrder = 0,
-				ZIndex = 33,
-				Parent = body,
+			Util.corner(thumb, 6)
+			local shade = Util.create("Frame", {
+				Name = "ThumbShade",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundColor3 = Theme.Background,
+				BackgroundTransparency = 0.45,
+				BorderSizePixel = 0,
+				ZIndex = 34,
+				Parent = thumb,
 			})
-			Util.font(thumbTitle, "Regular")
+			Util.corner(shade, 6)
 		end
 	end
 	local title = Util.create("TextLabel", {
 		Name = "Title",
-		Size = UDim2.new(1, 0, 0, 22),
+		Size = UDim2.new(1, 0, 0, 19),
 		BackgroundTransparency = 1,
 		Text = ks.Title or "卡密验证",
 		TextColor3 = Theme.Text,
-		TextSize = 16,
+		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		LayoutOrder = 1,
 		ZIndex = 33,
 		Parent = body,
 	})
 	Util.font(title, "SemiBold")
+	local closeBtn = nil
+	if ks.Dismissible ~= false then
+		closeBtn = Util.create("TextButton", {
+			Name = "Close",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 8),
+			Size = UDim2.fromOffset(22, 22),
+			BackgroundColor3 = Theme.SurfaceHover,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 36,
+			Parent = card,
+		})
+		Util.corner(closeBtn, 6)
+		local closeIcon = Icons.new(closeBtn, "x", {
+			Size = UDim2.fromOffset(12, 12),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Color = Theme.Muted,
+		})
+		gate.CloseButton = closeBtn
+		gate.CloseIcon = closeIcon
+		closeBtn.MouseEnter:Connect(function()
+			Util.tween(closeBtn, 0.12, { BackgroundTransparency = 0.35 })
+			closeIcon:setColor(Theme.Text)
+		end)
+		closeBtn.MouseLeave:Connect(function()
+			Util.tween(closeBtn, 0.12, { BackgroundTransparency = 1 })
+			closeIcon:setColor(Theme.Muted)
+		end)
+	end
 	if ks.Note and ks.Note ~= "" then
 		local note = Util.create("TextLabel", {
 			Name = "Note",
@@ -4776,7 +4807,7 @@ function XHM:_buildKeyGate()
 			BackgroundTransparency = 1,
 			Text = tostring(ks.Note),
 			TextColor3 = Theme.SubText,
-			TextSize = 12,
+			TextSize = 11.5,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Top,
@@ -4788,32 +4819,34 @@ function XHM:_buildKeyGate()
 	end
 	local inputRow = Util.create("Frame", {
 		Name = "InputRow",
-		Size = UDim2.new(1, 0, 0, 38),
+		Size = UDim2.new(1, 0, 0, 34),
 		BackgroundColor3 = Theme.SurfaceAlt,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0.25,
 		BorderSizePixel = 0,
 		LayoutOrder = 3,
 		ZIndex = 33,
 		Parent = body,
 	})
-	Util.corner(inputRow, 7)
-	local inputStroke = Util.stroke(inputRow, Theme.Stroke, 1, 0.2)
-	Icons.new(inputRow, "key-round", {
-		Size = UDim2.fromOffset(15, 15),
-		Position = UDim2.new(0, 11, 0.5, 0),
+	Util.corner(inputRow, 6)
+	local inputStroke = Util.stroke(inputRow, Theme.Stroke, 1, 0.25)
+	local inputIconName = "key"
+	local inputIcon = Icons.new(inputRow, inputIconName, {
+		Size = UDim2.fromOffset(13, 13),
+		Position = UDim2.new(0, 10, 0.5, 0),
 		AnchorPoint = Vector2.new(0, 0.5),
 		Color = Theme.Muted,
 	})
+	gate.InputIconName = inputIconName
 	local input = Util.create("TextBox", {
 		Name = "KeyInput",
-		Position = UDim2.new(0, 34, 0, 0),
-		Size = UDim2.new(1, -44, 1, 0),
+		Position = UDim2.new(0, 30, 0, 0),
+		Size = UDim2.new(1, -40, 1, 0),
 		BackgroundTransparency = 1,
 		Text = "",
 		PlaceholderText = ks.Placeholder or "在此输入卡密",
 		PlaceholderColor3 = Theme.Muted,
 		TextColor3 = Theme.Text,
-		TextSize = 13,
+		TextSize = 12.5,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ClearTextOnFocus = false,
 		ZIndex = 34,
@@ -4822,27 +4855,29 @@ function XHM:_buildKeyGate()
 	Util.font(input, "Medium")
 	local submit = Util.create("TextButton", {
 		Name = "Submit",
-		Size = UDim2.new(1, 0, 0, 36),
+		Size = UDim2.new(1, 0, 0, 34),
 		BackgroundColor3 = Theme.Accent,
 		BorderSizePixel = 0,
 		Text = ks.SubmitText or "验证",
 		TextColor3 = Color3.fromRGB(255, 255, 255),
-		TextSize = 13,
+		TextSize = 12.5,
 		AutoButtonColor = false,
 		LayoutOrder = 4,
 		ZIndex = 34,
 		Parent = body,
 	})
-	Util.corner(submit, 7)
+	Util.corner(submit, 6)
 	Util.font(submit, "SemiBold")
+	local submitScale = Util.create("UIScale", { Name = "KeyScale", Scale = 1, Parent = submit })
 	local status = Util.create("TextLabel", {
 		Name = "Status",
-		Size = UDim2.new(1, 0, 0, 16),
+		Size = UDim2.new(1, 0, 0, 15),
 		BackgroundTransparency = 1,
 		Text = "",
 		TextColor3 = Theme.SubText,
-		TextSize = 12,
+		TextSize = 11.5,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		Visible = false,
 		LayoutOrder = 5,
 		ZIndex = 34,
 		Parent = body,
@@ -4853,67 +4888,112 @@ function XHM:_buildKeyGate()
 	if link then
 		getKey = Util.create("TextButton", {
 			Name = "GetKey",
-			Size = UDim2.new(1, 0, 0, 32),
+			Size = UDim2.new(1, 0, 0, 26),
 			BackgroundColor3 = Theme.SurfaceAlt,
-			BackgroundTransparency = 0.35,
+			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			Text = ks.LinkText or "获取卡密（点击复制链接）",
-			TextColor3 = Theme.SubText,
-			TextSize = 12,
+			TextColor3 = Theme.Muted,
+			TextSize = 11.5,
 			AutoButtonColor = false,
 			LayoutOrder = 6,
 			ZIndex = 34,
 			Parent = body,
 		})
-		Util.corner(getKey, 7)
+		Util.corner(getKey, 6)
 		Util.font(getKey, "Medium")
 	end
 	gate.Overlay = overlay
 	gate.Card = card
+	gate.Body = body
 	gate.Input = input
 	gate.Submit = submit
 	gate.Status = status
 	gate.GetKey = getKey
+	gate.InputRow = inputRow
+	gate.InputStroke = inputStroke
+	gate.InputIcon = inputIcon
+	gate.Title = title
 	self._keyGate = gate
 	local busy = false
 	local function setStatus(text, color)
-		status.Text = tostring(text or "")
+		local has = text ~= nil and text ~= ""
+		status.Text = has and tostring(text) or ""
 		status.TextColor3 = color or Theme.SubText
-	end
-	local function unlock(message)
-		self._keyVerified = true
-		setStatus(message or "验证通过", Theme.Success)
-		if ks.SaveKey then
-			self:_writeFlag(ks.SaveFlag or "KeySystem", input.Text)
+		if has and not status.Visible then
+			status.Visible = true
+			status.TextTransparency = 1
+			Util.tween(status, 0.18, { TextTransparency = 0 })
 		end
-		Util.tween(overlay, 0.22, { BackgroundTransparency = 1 })
-		Util.tween(card, 0.22, { Position = UDim2.fromScale(0.5, 0.46) })
-		task.delay(0.24, function()
+	end
+	local function closeGate(onDone)
+		gate.Closing = true
+		Util.tween(cardScale, 0.2, { Scale = 1.02 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		Util.tween(overlay, 0.2, { BackgroundTransparency = 1 })
+		task.delay(0.22, function()
 			overlay:Destroy()
-			self._keyGate = nil
-			self:SetVisible(true)
+			if onDone then
+				onDone()
+			end
 		end)
 	end
+	gate.Close = closeGate
+	local function shake()
+		local base = card.Position
+		local beats = {
+			{ 7, 0 }, { -7, 0.07 }, { 5, 0.14 }, { -5, 0.21 }, { 0, 0.28 },
+		}
+		for _, beat in ipairs(beats) do
+			local dx, at = beat[1], beat[2]
+			task.delay(at, function()
+				if gate.Closing or not card.Parent then
+					return
+				end
+				Util.tween(card, 0.07, {
+					Position = UDim2.new(base.X.Scale, base.X.Offset + dx,
+						base.Y.Scale, base.Y.Offset),
+				}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			end)
+		end
+	end
 	local function attempt()
-		if busy then
+		if busy or gate.Closing then
 			return
 		end
 		local key = input.Text
 		if key == nil or key == "" then
 			setStatus("请输入卡密", Theme.Warning)
+			shake()
 			return
 		end
 		busy = true
 		setStatus("校验中…", Theme.Accent)
 		submit.Text = "校验中…"
+		Util.tween(submit, 0.18, { BackgroundTransparency = 0.3 })
 		task.spawn(function()
 			local ok, message = self:_verifyKey(key)
 			busy = false
 			submit.Text = ks.SubmitText or "验证"
+			Util.tween(submit, 0.18, { BackgroundTransparency = 0 })
 			if ok then
-				unlock(message)
+				self._keyVerified = true
+				setStatus(message or "验证通过", Theme.Success)
+				if ks.SaveKey then
+					self:_writeFlag(ks.SaveFlag or "KeySystem", key)
+				end
+				closeGate(function()
+					self._keyGate = nil
+					self:SetVisible(true)
+				end)
 			else
 				setStatus(message or "卡密无效", Theme.Error)
+				Util.tween(inputStroke, 0.2, { Color = Theme.Error, Transparency = 0 })
+				task.delay(0.9, function()
+					if card.Parent then
+						Util.tween(inputStroke, 0.3, { Color = Theme.Stroke, Transparency = 0.25 })
+					end
+				end)
+				shake()
 			end
 		end)
 	end
@@ -4925,14 +5005,37 @@ function XHM:_buildKeyGate()
 		end
 	end)
 	input.Focused:Connect(function()
-		Util.tween(inputStroke, 0.15, { Transparency = 0 })
+		Util.tween(inputStroke, 0.15, { Color = Theme.Accent, Transparency = 0 })
+		inputIcon:setColor(Theme.Accent)
+	end)
+	input.FocusLost:Connect(function()
+		Util.tween(inputStroke, 0.2, { Color = Theme.Stroke, Transparency = 0.25 })
+		inputIcon:setColor(Theme.Muted)
 	end)
 	input:GetPropertyChangedSignal("Text"):Connect(function()
 		if status.Text ~= "" and not busy then
-			setStatus("", Theme.SubText)
+			setStatus("")
 		end
 	end)
+	submit.MouseEnter:Connect(function()
+		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.AccentHover })
+	end)
+	submit.MouseLeave:Connect(function()
+		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.Accent })
+	end)
+	submit.MouseButton1Down:Connect(function()
+		Util.tween(submitScale, 0.09, { Scale = 0.975 })
+	end)
+	submit.MouseButton1Up:Connect(function()
+		Util.tween(submitScale, 0.14, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	end)
 	if getKey then
+		getKey.MouseEnter:Connect(function()
+			Util.tween(getKey, 0.12, { TextColor3 = Theme.Text })
+		end)
+		getKey.MouseLeave:Connect(function()
+			Util.tween(getKey, 0.12, { TextColor3 = Theme.Muted })
+		end)
 		getKey.MouseButton1Click:Connect(function()
 			local copied = false
 			if setclipboard then
@@ -4948,20 +5051,74 @@ function XHM:_buildKeyGate()
 					Theme.Warning)
 			end
 		end)
-		getKey.MouseEnter:Connect(function()
-			Util.tween(getKey, 0.12, { BackgroundTransparency = 0.15 })
-		end)
-		getKey.MouseLeave:Connect(function()
-			Util.tween(getKey, 0.12, { BackgroundTransparency = 0.35 })
+	end
+	if closeBtn then
+		closeBtn.MouseButton1Click:Connect(function()
+			self:DismissKeyGate()
 		end)
 	end
-	submit.MouseEnter:Connect(function()
-		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.AccentHover })
+	Util.tween(cardScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local items = {}
+	local function collect(parent, depth)
+		for _, c in ipairs(parent:GetChildren()) do
+			if c:IsA("GuiObject") and not c:IsA("UIScale") then
+				table.insert(items, c)
+				if depth < 1 then
+					collect(c, depth + 1)
+				end
+			end
+		end
+	end
+	collect(body, 0)
+	table.sort(items, function(a, b)
+		return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
 	end)
-	submit.MouseLeave:Connect(function()
-		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.Accent })
-	end)
+	for i, item in ipairs(items) do
+		local delay = 0.05 * i
+		local wasText = item.TextTransparency or 1
+		local wasImage = item.ImageTransparency or 1
+		local wasBg = item.BackgroundTransparency or 1
+		if wasText < 1 then
+			item.TextTransparency = 1
+			task.delay(delay, function()
+				Util.tween(item, 0.2, { TextTransparency = wasText })
+			end)
+		end
+		if item:IsA("ImageLabel") or item:IsA("ImageButton") then
+			if wasImage < 1 then
+				item.ImageTransparency = 1
+				task.delay(delay, function()
+					Util.tween(item, 0.2, { ImageTransparency = wasImage })
+				end)
+			end
+		end
+		if wasBg < 1 then
+			item.BackgroundTransparency = 1
+			task.delay(delay, function()
+				Util.tween(item, 0.22, { BackgroundTransparency = wasBg })
+			end)
+		end
+	end
 	return gate
+end
+function XHM:DismissKeyGate()
+	if not self._keyGate then
+		return false
+	end
+	local gate = self._keyGate
+	self._keyGate = nil
+	self._keyBypassed = true
+	if gate.Close then
+		gate.Close(function()
+			self:SetVisible(true)
+		end)
+	else
+		if gate.Overlay then
+			gate.Overlay:Destroy()
+		end
+		self:SetVisible(true)
+	end
+	return true
 end
 function XHM:SubmitKey(key)
 	if not self._keyGate and not self._keySystem then
