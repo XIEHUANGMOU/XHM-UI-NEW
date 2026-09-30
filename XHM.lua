@@ -4759,6 +4759,21 @@ function XHM:_buildKeyGate()
 			})
 			Util.corner(shade, 6)
 		end
+		if thumbCfg.Title and thumbCfg.Title ~= "" then
+			local thumbTitle = Util.create("TextLabel", {
+				Name = "ThumbnailTitle",
+				Size = UDim2.new(1, 0, 0, 15),
+				BackgroundTransparency = 1,
+				Text = tostring(thumbCfg.Title),
+				TextColor3 = Theme.Muted,
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				LayoutOrder = 0,
+				ZIndex = 33,
+				Parent = body,
+			})
+			Util.font(thumbTitle, "Regular")
+		end
 	end
 	local title = Util.create("TextLabel", {
 		Name = "Title",
@@ -5065,6 +5080,20 @@ function XHM:_buildKeyGate()
 		end)
 	end
 	Util.tween(cardScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local function softRead(inst, prop)
+		local ok, value = pcall(function()
+			return inst[prop]
+		end)
+		if ok and type(value) == "number" then
+			return value
+		end
+		return nil
+	end
+	local function softWrite(inst, prop, value)
+		pcall(function()
+			inst[prop] = value
+		end)
+	end
 	local items = {}
 	local function collect(parent, depth)
 		for _, c in ipairs(parent:GetChildren()) do
@@ -5082,25 +5111,23 @@ function XHM:_buildKeyGate()
 	end)
 	for i, item in ipairs(items) do
 		local delay = 0.05 * i
-		local wasText = item.TextTransparency or 1
-		local wasImage = item.ImageTransparency or 1
-		local wasBg = item.BackgroundTransparency or 1
-		if wasText < 1 then
-			item.TextTransparency = 1
+		local wasText = softRead(item, "TextTransparency")
+		local wasImage = softRead(item, "ImageTransparency")
+		local wasBg = softRead(item, "BackgroundTransparency")
+		if wasText ~= nil and wasText < 1 then
+			softWrite(item, "TextTransparency", 1)
 			task.delay(delay, function()
 				Util.tween(item, 0.2, { TextTransparency = wasText })
 			end)
 		end
-		if item:IsA("ImageLabel") or item:IsA("ImageButton") then
-			if wasImage < 1 then
-				item.ImageTransparency = 1
-				task.delay(delay, function()
-					Util.tween(item, 0.2, { ImageTransparency = wasImage })
-				end)
-			end
+		if wasImage ~= nil and wasImage < 1 then
+			softWrite(item, "ImageTransparency", 1)
+			task.delay(delay, function()
+				Util.tween(item, 0.2, { ImageTransparency = wasImage })
+			end)
 		end
-		if wasBg < 1 then
-			item.BackgroundTransparency = 1
+		if wasBg ~= nil and wasBg < 1 then
+			softWrite(item, "BackgroundTransparency", 1)
 			task.delay(delay, function()
 				Util.tween(item, 0.22, { BackgroundTransparency = wasBg })
 			end)
