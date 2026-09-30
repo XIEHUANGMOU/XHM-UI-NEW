@@ -954,6 +954,8 @@ function XHM.new(config)
 			self._sounds[name] = source
 		end
 	end
+	self._registry = {}
+	self._searchOpen = false
 	if config.Accent then
 		Theme.Accent = config.Accent
 	end
@@ -1105,6 +1107,7 @@ function XHM.new(config)
 	end
 	self:_bindToggleKey(config.ToggleKey)
 	self:_buildLauncher()
+	self:_initSearch()
 	Screens[self] = true
 	Util.safeParent(screen)
 	local targetSize = size
@@ -1236,6 +1239,9 @@ function XHM:_buildTitleBar()
 	end)
 	self.HideButton, self._hideIcon = addButton("eye-off", 4, function()
 		self:SetVisible(false)
+	end)
+	self.SearchButton = addButton("search", 5, function()
+		self:ToggleSearch()
 	end)
 	self.CloseButton.MouseEnter:Connect(function()
 		Util.tween(self.CloseButton, 0.14, { BackgroundColor3 = Theme.Error, BackgroundTransparency = 0.15 })
@@ -1904,6 +1910,226 @@ function XHM:Tab(tabConfig)
 	tab.Right = right
 	tab._sections = {}
 	tab._order = 0
+	tab._subTabs = {}
+	tab._activeSubTab = nil
+	tab._twoColumn = false
+	local subBar = Util.create("Frame", {
+		Name = "SubTabBar",
+		Size = UDim2.new(1, 0, 0, 0),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Parent = page,
+	})
+	local subPill = Util.create("Frame", {
+		Name = "Pill",
+		BackgroundColor3 = Theme.Accent,
+		BackgroundTransparency = 0.18,
+		BorderSizePixel = 0,
+		Visible = false,
+		ZIndex = 0,
+		Parent = subBar,
+	})
+	Util.corner(subPill, 6)
+	local subInner = Util.create("Frame", {
+		Name = "Inner",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 1,
+		Parent = subBar,
+	})
+	Util.create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Parent = subInner,
+	})
+	Util.create("UIPadding", {
+		PaddingLeft = UDim.new(0, 12),
+		PaddingRight = UDim.new(0, 12),
+		PaddingTop = UDim.new(0, 6),
+		PaddingBottom = UDim.new(0, 6),
+		Parent = subInner,
+	})
+	tab.SubTabBar = subBar
+	tab._subPill = subPill
+	tab._subInner = subInner
+	local SUBBAR_HEIGHT = 40
+	function tab:_applyPaneLayout()
+		local h = (#self._subTabs > 0) and SUBBAR_HEIGHT or 0
+		local function place(left, right, twoCol)
+			left.Position = UDim2.new(0, 0, 0, h)
+			left.Size = UDim2.new(twoCol and 0.5 or 1, 0, 1, -h)
+			right.Position = UDim2.new(0.5, 0, 0, h)
+			right.Size = UDim2.new(0.5, 0, 1, -h)
+		end
+		place(self.Left, self.Right, self._twoColumn == true)
+		for _, s in ipairs(self._subTabs) do
+			place(s.Left, s.Right, s._twoColumn == true)
+		end
+	end
+	function tab:_panes()
+		local sub = self._activeSubTab
+		if sub then
+			return sub.Left, sub.Right
+		end
+		return self.Left, self.Right
+	end
+	function tab:ActiveSubTab()
+		return self._activeSubTab
+	end
+	function tab:GetSubTab(name)
+		for _, s in ipairs(self._subTabs) do
+			if s.Name == name then
+				return s
+			end
+		end
+		return nil
+	end
+	function tab:_syncSubPill(instant)
+		local sub = self._activeSubTab
+		if not sub or not sub.Button then
+			subPill.Visible = false
+			return
+		end
+		subPill.Visible = true
+		local duration = instant and 0 or 0.18
+		Util.tween(subPill, duration, {
+			Position = sub.Button.Position,
+			Size = sub.Button.Size,
+		})
+	end
+	function tab:SelectSubTab(sub, instant)
+		if self._activeSubTab == sub then
+			return
+		end
+		self._activeSubTab = sub
+		for _, s in ipairs(self._subTabs) do
+			local active = (s == sub)
+			s.Left.Visible = active
+			s.Right.Visible = active and (s._twoColumn == true)
+			if s.Button then
+				Util.tween(s.Label, 0.15, { TextColor3 = active and Theme.Text or Theme.SubText })
+				Util.tween(s.Button, 0.15, {
+					BackgroundTransparency = active and 1 or 1,
+				})
+				if s.Icon then
+					s.Icon:setColor(active and Theme.Text or Theme.SubText)
+				end
+			end
+		end
+		self:_syncSubPill(instant)
+		return sub
+	end
+	function tab:SubTab(subConfig)
+		subConfig = subConfig or {}
+		local sub = {
+			Window = self.Window,
+			Tab = self,
+			Name = subConfig.Name or ("子页" .. (#self._subTabs + 1)),
+			IconName = subConfig.Icon,
+			_sections = {},
+			_order = 0,
+			_twoColumn = false,
+			LayoutOrder = #self._subTabs + 1,
+		}
+		local function makePane(name, xScale, widthScale, padLeft, padRight)
+			local pane = Util.create("ScrollingFrame", {
+				Name = name,
+				Position = UDim2.new(xScale, 0, 0, SUBBAR_HEIGHT),
+				Size = UDim2.new(widthScale, 0, 1, -SUBBAR_HEIGHT),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				CanvasSize = UDim2.new(),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ScrollBarThickness = 2,
+				ScrollBarImageColor3 = Theme.StrokeLight,
+				ScrollingDirection = Enum.ScrollingDirection.Y,
+				Visible = false,
+				Parent = page,
+			})
+			Util.create("UIListLayout", {
+				Padding = UDim.new(0, 8),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = pane,
+			})
+			Util.create("UIPadding", {
+				PaddingTop = UDim.new(0, 12),
+				PaddingBottom = UDim.new(0, 12),
+				PaddingLeft = UDim.new(0, padLeft),
+				PaddingRight = UDim.new(0, padRight),
+				Parent = pane,
+			})
+			return pane
+		end
+		sub.Left = makePane("Left", 0, 1, 12, 6)
+		sub.Right = makePane("Right", 0.5, 0.5, 6, 12)
+		function sub:Section(sectionConfig)
+			return self.Window:_createSection(self.Tab, sectionConfig, self)
+		end
+		function sub:Select()
+			self.Tab:SelectSubTab(self)
+		end
+		local btn = Util.create("TextButton", {
+			Name = "SubTab_" .. sub.Name,
+			Size = UDim2.new(0, 80, 1, -12),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			LayoutOrder = sub.LayoutOrder,
+			Parent = tab._subInner,
+		})
+		Util.corner(btn, 6)
+		local tx = 10
+		if sub.IconName then
+			sub.Icon = Icons.new(btn, sub.IconName, {
+				Size = UDim2.fromOffset(14, 14),
+				Position = UDim2.new(0, 9, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Color = Theme.SubText,
+			})
+			tx = 28
+		end
+		sub.Label = Util.create("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, tx, 0, 0),
+			Size = UDim2.new(1, -(tx + 8), 1, 0),
+			Text = sub.Name,
+			TextColor3 = Theme.SubText,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = btn,
+		})
+		Util.font(sub.Label, "Medium")
+		sub.Button = btn
+		btn.MouseButton1Click:Connect(function()
+			self:SelectSubTab(sub)
+		end)
+		btn.MouseEnter:Connect(function()
+			if self._activeSubTab ~= sub then
+				Util.tween(btn, 0.12, { BackgroundColor3 = Theme.SurfaceHover, BackgroundTransparency = 0.4 })
+			end
+		end)
+		btn.MouseLeave:Connect(function()
+			if self._activeSubTab ~= sub then
+				Util.tween(btn, 0.12, { BackgroundTransparency = 1 })
+			end
+		end)
+		table.insert(self._subTabs, sub)
+		local count = #self._subTabs
+		for i, s in ipairs(self._subTabs) do
+			s.Button.Size = UDim2.new(1 / count, -(6 * (count - 1) / count), 1, -12)
+		end
+		self:_applyPaneLayout()
+		Util.tween(subBar, 0.2, { Size = UDim2.new(1, 0, 0, SUBBAR_HEIGHT) })
+		if #self._subTabs == 1 then
+			self:SelectSubTab(sub, true)
+		else
+			self:_syncSubPill(true)
+		end
+		return sub
+	end
 	function tab:Section(sectionConfig)
 		return self.Window:_createSection(self, sectionConfig)
 	end
@@ -2025,17 +2251,23 @@ function XHM:GetTab(name)
 end
 local Section = {}
 Section.__index = Section
-function XHM:_createSection(tab, cfg)
+function XHM:_createSection(tab, cfg, sub)
 	cfg = cfg or {}
+	sub = sub or tab._activeSubTab
+	local left = sub and sub.Left or tab.Left
+	local right = sub and sub.Right or tab.Right
 	local side = cfg.Side or "Left"
-	local column = (side == "Right") and tab.Right or tab.Left
+	local column = (side == "Right") and right or left
+	local owner = sub or tab
 	if side == "Right" or cfg.TwoColumn then
-		tab.Left.Size = UDim2.fromScale(0.5, 1)
-		tab.Right.Visible = true
+		owner._twoColumn = true
+		tab:_applyPaneLayout()
+		right.Visible = sub == nil or tab._activeSubTab == sub
 	end
 	tab._order += 1
 	local section = setmetatable({}, Section)
 	section.Tab = tab
+	section.SubTab = sub
 	section.Window = self
 	section._order = 0
 	section.Name = cfg.Name or "Section"
@@ -3612,6 +3844,127 @@ function Section:Label(cfg)
 	end
 	return obj
 end
+function Section:SearchBox(cfg)
+	cfg = cfg or {}
+	local hasLabel = cfg.Name ~= nil
+	local row = self:_row(34, cfg.Flag)
+	if hasLabel then
+		self:_title(row, cfg, cfg.Width or 160)
+	end
+	local box = Util.create("Frame", {
+		Name = "SearchBox",
+		AnchorPoint = hasLabel and Vector2.new(1, 0.5) or Vector2.new(0, 0.5),
+		Position = hasLabel and UDim2.new(1, -8, 0.5, 0) or UDim2.new(0, 8, 0.5, 0),
+		Size = hasLabel and UDim2.new(0, cfg.Width or 150, 0, 26)
+			or UDim2.new(1, -16, 0, 30),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		BackgroundTransparency = 0.1,
+		BorderSizePixel = 0,
+		Parent = row.Header,
+	})
+	Util.corner(box, 6)
+	local boxStroke = Util.stroke(box, Theme.Stroke, 1, 0.2)
+	local icon = Icons.new(box, "search", {
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.new(0, 9, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Color = Theme.Muted,
+	})
+	local clearBtn = Util.create("TextButton", {
+		Name = "Clear",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -4, 0.5, 0),
+		Size = UDim2.fromOffset(22, 22),
+		BackgroundColor3 = Theme.SurfaceHover,
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Visible = false,
+		Parent = box,
+	})
+	Util.corner(clearBtn, 5)
+	local clearIcon = Icons.new(clearBtn, "x", {
+		Size = UDim2.fromOffset(12, 12),
+		Position = UDim2.fromScale(0.5, 0.5),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Color = Theme.SubText,
+	})
+	local textbox = Util.create("TextBox", {
+		Name = "Input",
+		Position = UDim2.new(0, 28, 0, 0),
+		Size = UDim2.new(1, -52, 1, 0),
+		BackgroundTransparency = 1,
+		Text = tostring(cfg.Default or ""),
+		PlaceholderText = cfg.Placeholder or "搜索...",
+		PlaceholderColor3 = Theme.Muted,
+		TextColor3 = Theme.Text,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		Parent = box,
+	})
+	Util.font(textbox, "Regular")
+	local obj = { Text = textbox.Text, Flag = cfg.Flag, Instance = box }
+	local debounce = (cfg.Debounce == nil) and 0.15 or cfg.Debounce
+	local token = 0
+	local function fire()
+		obj.Text = textbox.Text
+		self.Window:_writeFlag(obj.Flag, obj.Text)
+		if cfg.OnChanged then
+			task.spawn(cfg.OnChanged, obj.Text)
+		end
+	end
+	local function schedule()
+		token += 1
+		local mine = token
+		clearBtn.Visible = (textbox.Text ~= "") and (cfg.Clearable ~= false)
+		if debounce and debounce > 0 then
+			task.delay(debounce, function()
+				if mine == token then
+					fire()
+				end
+			end)
+		else
+			fire()
+		end
+	end
+	textbox:GetPropertyChangedSignal("Text"):Connect(schedule)
+	textbox.Focused:Connect(function()
+		Util.tween(boxStroke, 0.15, { Transparency = 0 })
+	end)
+	textbox.FocusLost:Connect(function(enterPressed)
+		Util.tween(boxStroke, 0.15, { Transparency = 0.2 })
+		if enterPressed and cfg.OnEnter then
+			task.spawn(cfg.OnEnter, textbox.Text)
+		end
+	end)
+	clearBtn.MouseEnter:Connect(function()
+		Util.tween(clearBtn, 0.12, { BackgroundTransparency = 0.3 })
+		clearIcon:setColor(Theme.Text)
+	end)
+	clearBtn.MouseLeave:Connect(function()
+		Util.tween(clearBtn, 0.12, { BackgroundTransparency = 1 })
+		clearIcon:setColor(Theme.SubText)
+	end)
+	clearBtn.MouseButton1Click:Connect(function()
+		textbox.Text = ""
+		schedule()
+		if cfg.OnChanged then
+			task.spawn(cfg.OnChanged, "")
+		end
+	end)
+	obj.Set = function(_, text)
+		textbox.Text = tostring(text or "")
+		schedule()
+	end
+	obj.Clear = function()
+		obj.Set(nil, "")
+	end
+	obj.Focus = function()
+		textbox:CaptureFocus()
+	end
+	return obj
+end
 function Section:Paragraph(cfg)
 	cfg = cfg or {}
 	local text = cfg.Content or cfg.Text or ""
@@ -3678,6 +4031,363 @@ function Section:Space(cfg)
 			spacer:Destroy()
 		end,
 	}
+end
+function Section:_register(kind, cfg)
+	local window = self.Window
+	if not window or not window._registry then
+		return nil
+	end
+	local entry = {
+		Name = cfg.Name or cfg.Title or kind,
+		Kind = kind,
+		Section = self,
+		Tab = self.Tab,
+		SubTab = self.SubTab,
+		Flag = cfg.Flag,
+		Desc = cfg.Description or cfg.Desc,
+		Keywords = cfg.Keywords,
+	}
+	table.insert(window._registry, entry)
+	return entry
+end
+do
+	local kinds = {
+		"Button", "Toggle", "Slider", "Dropdown", "Input", "SearchBox",
+		"Keybind", "ColorPicker", "Label", "Paragraph",
+	}
+	for _, kind in ipairs(kinds) do
+		local original = Section[kind]
+		if type(original) == "function" then
+			Section[kind] = function(self, cfg)
+				cfg = cfg or {}
+				local entry = self:_register(kind, cfg)
+				local obj = original(self, cfg)
+				if entry and type(obj) == "table" then
+					entry.Object = obj
+					if obj.Instance then
+						entry.Instance = obj.Instance
+					end
+				end
+				return obj
+			end
+		end
+	end
+end
+local KIND_ICON = {
+	Button = "sparkles",
+	Toggle = "circle-check",
+	Slider = "minus",
+	Dropdown = "dot",
+	Input = "dot",
+	SearchBox = "search",
+	Keybind = "dot",
+	ColorPicker = "dot",
+	Label = "info",
+	Paragraph = "info",
+}
+function XHM:_searchMatches(query)
+	local out = {}
+	local terms = {}
+	for t in tostring(query or ""):lower():gmatch("%S+") do
+		table.insert(terms, t)
+	end
+	if #terms == 0 then
+		return out
+	end
+	for _, e in ipairs(self._registry or {}) do
+		local parts = {
+			e.Name, e.Kind, tostring(e.Desc or ""), tostring(e.Keywords or ""),
+			e.Section and e.Section.Name or "", e.Tab and e.Tab.Name or "",
+			e.SubTab and e.SubTab.Name or "", tostring(e.Flag or ""),
+		}
+		local hay = table.concat(parts, " "):lower()
+		local all = true
+		for _, t in ipairs(terms) do
+			if not hay:find(t, 1, true) then
+				all = false
+				break
+			end
+		end
+		if all then
+			table.insert(out, e)
+		end
+	end
+	return out
+end
+function XHM:_buildSearchPanel()
+	if self._searchPanel then
+		return self._searchPanel
+	end
+	local overlay = Util.create("TextButton", {
+		Name = "SearchOverlay",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.5,
+		Text = "",
+		AutoButtonColor = false,
+		Visible = false,
+		ZIndex = 50,
+		Parent = self.Screen,
+	})
+	local panel = Util.create("Frame", {
+		Name = "SearchPanel",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 90),
+		Size = UDim2.fromOffset(460, 322),
+		BackgroundColor3 = Theme.Surface,
+		BackgroundTransparency = 0.02,
+		BorderSizePixel = 0,
+		ZIndex = 51,
+		Parent = overlay,
+	})
+	Util.corner(panel, Theme.Radius + 2)
+	Util.stroke(panel, Theme.StrokeLight, 1, 0.25)
+	local inputRow = Util.create("Frame", {
+		Name = "InputRow",
+		Size = UDim2.new(1, 0, 0, 50),
+		BackgroundTransparency = 1,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Icons.new(inputRow, "search", {
+		Size = UDim2.fromOffset(16, 16),
+		Position = UDim2.new(0, 16, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Color = Theme.Accent,
+		ZIndex = 53,
+	})
+	local input = Util.create("TextBox", {
+		Name = "SearchInput",
+		Position = UDim2.new(0, 42, 0, 0),
+		Size = UDim2.new(1, -58, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		PlaceholderText = "搜索组件名 / 类型 / 所在分区…",
+		PlaceholderColor3 = Theme.Muted,
+		TextColor3 = Theme.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 53,
+		Parent = inputRow,
+	})
+	Util.font(input, "Medium")
+	Util.create("Frame", {
+		Name = "Divider",
+		Position = UDim2.new(0, 12, 0, 50),
+		Size = UDim2.new(1, -24, 0, 1),
+		BackgroundColor3 = Theme.Stroke,
+		BorderSizePixel = 0,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	local list = Util.create("ScrollingFrame", {
+		Name = "Results",
+		Position = UDim2.new(0, 8, 0, 56),
+		Size = UDim2.new(1, -16, 1, -64),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Theme.StrokeLight,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ZIndex = 52,
+		Parent = panel,
+	})
+	Util.create("UIListLayout", {
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = list,
+	})
+	overlay.MouseButton1Click:Connect(function()
+		self:ToggleSearch(false)
+	end)
+	input.Focused:Connect(function()
+	end)
+	input:GetPropertyChangedSignal("Text"):Connect(function()
+		self:_renderSearchResults(input.Text)
+	end)
+	self._searchPanel = {
+		Overlay = overlay,
+		Panel = panel,
+		Input = input,
+		List = list,
+	}
+	return self._searchPanel
+end
+function XHM:_renderSearchResults(query)
+	local p = self._searchPanel
+	if not p then
+		return 0
+	end
+	for _, child in ipairs(p.List:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+	local matches = self:_searchMatches(query)
+	local root = self.Screen
+	local shown = 0
+	if #matches == 0 then
+		local hint = Util.create("TextLabel", {
+			Name = "Empty",
+			Size = UDim2.new(1, 0, 0, 60),
+			BackgroundTransparency = 1,
+			Text = query == "" and ("共 " .. tostring(#(self._registry or {})) .. " 个组件，输入关键字开始搜索")
+				or "没有匹配的组件",
+			TextColor3 = Theme.Muted,
+			TextSize = 12,
+			LayoutOrder = 1,
+			Parent = p.List,
+		})
+		Util.font(hint, "Regular")
+		return 0
+	end
+	for i, e in ipairs(matches) do
+		if shown >= 40 then
+			break
+		end
+		shown += 1
+		local item = Util.create("TextButton", {
+			Name = "Result_" .. i,
+			Size = UDim2.new(1, 0, 0, 40),
+			BackgroundColor3 = Theme.SurfaceAlt,
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			LayoutOrder = i,
+			Parent = p.List,
+		})
+		Util.corner(item, 6)
+		Icons.new(item, KIND_ICON[e.Kind] or "dot", {
+			Size = UDim2.fromOffset(14, 14),
+			Position = UDim2.new(0, 12, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Color = Theme.Accent,
+		})
+		local name = Util.create("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 36, 0, 0),
+			Size = UDim2.new(0.55, -36, 1, 0),
+			Text = e.Name,
+			TextColor3 = Theme.Text,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = item,
+		})
+		Util.font(name, "Medium")
+		local where = e.Kind
+		if e.Tab then
+			where = where .. " · " .. e.Tab.Name
+		end
+		if e.SubTab then
+			where = where .. " / " .. e.SubTab.Name
+		end
+		if e.Section and e.Section.Name then
+			where = where .. " / " .. e.Section.Name
+		end
+		local meta = Util.create("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0.55, 0, 0, 0),
+			Size = UDim2.new(0.45, -12, 1, 0),
+			Text = where,
+			TextColor3 = Theme.Muted,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = item,
+		})
+		Util.font(meta, "Regular")
+		item.MouseEnter:Connect(function()
+			Util.tween(item, 0.12, { BackgroundColor3 = Theme.SurfaceHover, BackgroundTransparency = 0.2 })
+		end)
+		item.MouseLeave:Connect(function()
+			Util.tween(item, 0.12, { BackgroundTransparency = 1 })
+		end)
+		item.MouseButton1Click:Connect(function()
+			self:_jumpTo(e)
+		end)
+	end
+	return shown
+end
+function XHM:_jumpTo(entry)
+	self:ToggleSearch(false)
+	if entry.Tab then
+		self:SelectTab(entry.Tab)
+		if entry.SubTab and entry.Tab.SelectSubTab then
+			entry.Tab:SelectSubTab(entry.SubTab)
+		end
+	end
+	local section = entry.Section
+	if not section or not section.Root then
+		return false
+	end
+	task.defer(function()
+		local container = Util.findScroller(section.Root)
+		if container then
+			local delta = section.Root.AbsolutePosition.Y - container.AbsolutePosition.Y
+			local canvas = container.CanvasPosition
+			if canvas then
+				container.CanvasPosition = Vector2.new(
+					0, math.max(0, canvas.Y + delta - 12))
+			end
+		end
+		local original = section.Root.BackgroundColor3
+		Util.tween(section.Root, 0.12, {
+			BackgroundColor3 = Theme.Accent,
+			BackgroundTransparency = 0.6,
+		})
+		task.delay(0.45, function()
+			Util.tween(section.Root, 0.4, {
+				BackgroundColor3 = original,
+				BackgroundTransparency = 0.25,
+			})
+		end)
+	end)
+	return true
+end
+function XHM:ToggleSearch(open)
+	local p = self:_buildSearchPanel()
+	if open == nil then
+		open = not self._searchOpen
+	end
+	self._searchOpen = open and true or false
+	p.Overlay.Visible = self._searchOpen
+	if self._searchOpen then
+		p.Input.Text = ""
+		self:_renderSearchResults("")
+		pcall(function()
+			p.Input:CaptureFocus()
+		end)
+	end
+	return self._searchOpen
+end
+function XHM:IsSearchOpen()
+	return self._searchOpen == true
+end
+function XHM:_initSearch()
+	self._registry = self._registry or {}
+	if self.Config.SearchKey == false then
+		return
+	end
+	local key = self.Config.SearchKey or Enum.KeyCode.F
+	local uis = game:GetService("UserInputService")
+	if not uis then
+		return
+	end
+	self._searchConn = uis.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed or not input or input.KeyCode ~= key then
+			return
+		end
+		local ok, down = pcall(function()
+			return uis:IsKeyDown(Enum.KeyCode.LeftControl) or uis:IsKeyDown(Enum.KeyCode.RightControl)
+		end)
+		if ok and down then
+			self:ToggleSearch()
+		end
+	end)
 end
 local TYPE_STYLE = {
 	info = { Icon = "info", Color = Color3.fromRGB(88, 140, 255) },
