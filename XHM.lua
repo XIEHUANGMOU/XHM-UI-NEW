@@ -1205,6 +1205,7 @@ function XHM.new(config)
 	self:_buildLauncher()
 	self:_buildUser()
 	self:_initSearch()
+	local keyBlocked = false
 	if self._keySystem then
 		self:_buildKeyGate()
 		local ks = self._keySystem
@@ -1224,23 +1225,35 @@ function XHM.new(config)
 				self._keyGate = nil
 			end
 		else
-			self:SetVisible(false)
+			self._visible = false
+			keyBlocked = true
 		end
 	end
 	Screens[self] = true
 	Util.safeParent(screen)
-	local targetSize = size
-	if size.X.Offset > 0 and size.Y.Offset > 0 then
-		main.Size = UDim2.new(
-			size.X.Scale, math.max(size.X.Offset - 26, 120),
-			size.Y.Scale, math.max(size.Y.Offset - 22, 120)
-		)
+	if keyBlocked then
+		main.Visible = false
+		main.BackgroundTransparency = 0
+		if self._mainScale then
+			self._mainScale.Scale = 1
+		end
+		if self.Launcher then
+			self.Launcher.Visible = false
+		end
+	else
+		local targetSize = size
+		if size.X.Offset > 0 and size.Y.Offset > 0 then
+			main.Size = UDim2.new(
+				size.X.Scale, math.max(size.X.Offset - 26, 120),
+				size.Y.Scale, math.max(size.Y.Offset - 22, 120)
+			)
+		end
+		main.BackgroundTransparency = 0.7
+		Util.tween(main, 0.3, {
+			Size = targetSize,
+			BackgroundTransparency = config.Transparent and 0.3 or 0,
+		}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	end
-	main.BackgroundTransparency = 0.7
-	Util.tween(main, 0.3, {
-		Size = targetSize,
-		BackgroundTransparency = config.Transparent and 0.3 or 0,
-	}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	return self
 end
 function XHM:_buildTitleBar()
