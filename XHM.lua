@@ -4471,7 +4471,7 @@ local TYPE_STYLE = {
 	warning = { Icon = "alert", Color = Theme.Warning },
 	error = { Icon = "circle-x", Color = Theme.Error },
 }
-local EXIT_TIME = 0.2
+local EXIT_TIME = 0.26
 local Notification = {}
 Notification.__index = Notification
 function Notification:_paintProgress()
@@ -4571,10 +4571,16 @@ function Notification:dismiss()
 	local height = self._card.AbsoluteSize.Y
 	self._card.AutomaticSize = Enum.AutomaticSize.None
 	self._card.Size = UDim2.new(1, 0, 0, height)
+	local holderHeight = self._holder.AbsoluteSize.Y
+	self._holder.AutomaticSize = Enum.AutomaticSize.None
+	self._holder.Size = UDim2.new(1, 0, 0, holderHeight)
+	Util.tween(self._holder, EXIT_TIME, {
+		Size = UDim2.new(1, 0, 0, 0),
+	}, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 	Util.tween(self._card, EXIT_TIME, { Position = UDim2.new(0, 40, 0, 0) },
 		Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 	Util.tween(self._card, EXIT_TIME, { Size = UDim2.new(1, 0, 0, 0) })
-	task.delay(EXIT_TIME + 0.02, function()
+	task.delay(EXIT_TIME + 0.06, function()
 		self._holder:Destroy()
 	end)
 end
@@ -4703,10 +4709,10 @@ function XHM:_createNotification(cfg)
 		Parent = card,
 	})
 	Util.create("UIPadding", {
-		PaddingTop = UDim.new(0, 10),
-		PaddingBottom = UDim.new(0, 10),
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
+		PaddingTop = UDim.new(0, 12),
+		PaddingBottom = UDim.new(0, 20),
+		PaddingLeft = UDim.new(0, 14),
+		PaddingRight = UDim.new(0, 14),
 		Parent = inner,
 	})
 	local icon = Icons.new(inner, iconName, {
@@ -4731,7 +4737,7 @@ function XHM:_createNotification(cfg)
 	local content = Util.create("TextLabel", {
 		Name = "Content",
 		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 26, 0, 20),
+		Position = UDim2.new(0, 26, 0, 24),
 		Size = UDim2.new(0, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		Text = "",
@@ -4747,8 +4753,8 @@ function XHM:_createNotification(cfg)
 	local progress = Util.create("Frame", {
 		Name = "Progress",
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 0, 1, 4),
-		Size = UDim2.new(1, -24, 0, 3),
+		Position = UDim2.new(0, 0, 1, 12),
+		Size = UDim2.new(1, -28, 0, 3),
 		BackgroundColor3 = Theme.Stroke,
 		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
