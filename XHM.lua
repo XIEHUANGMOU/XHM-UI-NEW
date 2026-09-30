@@ -888,6 +888,82 @@ XHM.Credits = "Icons: Lucide (ISC) https://lucide.dev | Roblox data: latte-soft/
 XHM.Icons = Icons
 XHM.Theme = Theme
 XHM.Util = Util
+XHM.KeyServices = {}
+XHM.KeyServices.list = {
+	Name = "本地列表",
+	Icon = "list",
+	New = function(cfg)
+		local keys = {}
+		for _, k in ipairs(cfg.Keys or cfg.List or {}) do
+			keys[tostring(k)] = true
+		end
+		return {
+			Verify = function(key)
+				if keys[tostring(key)] then
+					return true, "卡密有效"
+				end
+				return false, "卡密不在允许列表里"
+			end,
+		}
+	end,
+}
+XHM.KeyServices.http = {
+	Name = "远程校验",
+	Icon = "cloud",
+	New = function(cfg)
+		return {
+			Verify = function(key)
+				local url = tostring(cfg.Url or "")
+				if url == "" then
+					return false, "远程校验没配 Url"
+				end
+				key = tostring(key or "")
+				if url:find("{key}", 1, true) then
+					url = url:gsub("{key}", (key:gsub("[^%w%-%._~]", function(c)
+						return string.format("%%%02X", string.byte(c))
+					end)))
+				else
+					local field = cfg.KeyField or "key"
+					url = url .. (url:find("?", 1, true) and "&" or "?") .. field .. "=" .. key
+				end
+				if cfg.Method == "POST" then
+					local requester = (syn and syn.request) or (http and http.request)
+						or http_request or request
+					if not requester then
+						return false, "当前执行器不支持 POST 请求"
+					end
+					local ok, resp = pcall(requester, {
+						Url = url,
+						Method = "POST",
+						Headers = cfg.Headers or { ["Content-Type"] = "application/json" },
+						Body = cfg.Body and cfg.Body(key) or ("{\"key\":\"" .. key .. "\"}"),
+					})
+					if not ok or type(resp) ~= "table" then
+						return false, "请求失败: " .. tostring(resp)
+					end
+					local body = tostring(resp.Body or "")
+					if cfg.Parse then
+						return cfg.Parse(body, resp.StatusCode)
+					end
+					return body:lower():find("true") ~= nil or body:lower():find("success") ~= nil,
+						(body:lower():find("true") or body:lower():find("success"))
+							and "验证通过" or "卡密无效"
+				end
+				local body = Util.httpGet(url)
+				if type(body) ~= "string" then
+					return false, "请求没有返回内容"
+				end
+				if cfg.Parse then
+					return cfg.Parse(body, 200)
+				end
+				local low = body:lower()
+				local pass = low:find("true") ~= nil or low:find("success") ~= nil
+					or low:find("valid") ~= nil
+				return pass, pass and "验证通过" or "卡密无效"
+			end,
+		}
+	end,
+}
 local B = "https://raw.githubusercontent.com/XIEHUANGMOU/UI-BackGround/main/"
 local I = "https://raw.githubusercontent.com/XIEHUANGMOU/UI_Icon/main/"
 local S = "https://raw.githubusercontent.com/XIEHUANGMOU/UI-Sound/main/"
@@ -956,6 +1032,9 @@ function XHM.new(config)
 	end
 	self._registry = {}
 	self._searchOpen = false
+	self._keySystem = config.KeySystem
+	self._keyVerified = false
+	self._keyServiceCache = {}
 	if config.Accent then
 		Theme.Accent = config.Accent
 	end
@@ -1108,6 +1187,28 @@ function XHM.new(config)
 	self:_bindToggleKey(config.ToggleKey)
 	self:_buildLauncher()
 	self:_initSearch()
+	if self._keySystem then
+		self:_buildKeyGate()
+		local ks = self._keySystem
+		local savedKey = nil
+		if ks.SaveKey then
+			savedKey = self:GetFlag(ks.SaveFlag or "KeySystem")
+		end
+		local passed = false
+		if savedKey ~= nil and savedKey ~= "" then
+			local ok = self:_verifyKey(savedKey)
+			passed = ok and true or false
+		end
+		if passed then
+			self._keyVerified = true
+			if self._keyGate then
+				self._keyGate.Overlay:Destroy()
+				self._keyGate = nil
+			end
+		else
+			self:SetVisible(false)
+		end
+	end
 	Screens[self] = true
 	Util.safeParent(screen)
 	local targetSize = size
@@ -1243,6 +1344,25 @@ function XHM:_buildTitleBar()
 	self.SearchButton = addButton("search", 5, function()
 		self:ToggleSearch()
 	end)
+	local tagBar = Util.create("Frame", {
+		Name = "TagBar",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -(10 + #buttons * 32 + 8), 0.5, 0),
+		Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1,
+		Parent = bar,
+	})
+	Util.create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = tagBar,
+	})
+	self.TagBar = tagBar
+	self._tags = {}
 	self.CloseButton.MouseEnter:Connect(function()
 		Util.tween(self.CloseButton, 0.14, { BackgroundColor3 = Theme.Error, BackgroundTransparency = 0.15 })
 		self._closeIcon:setColor(Color3.fromRGB(255, 255, 255))
@@ -2137,6 +2257,15 @@ function XHM:Tab(tabConfig)
 		end
 		return sub
 	end
+	function tab:Tag(tagConfig)
+		tagConfig = tagConfig or {}
+		tagConfig.Tab = tab
+		local t = self.Window:Tag(tagConfig)
+		if t then
+			t:SetVisible(self.Window._activeTab == tab)
+		end
+		return t
+	end
 	function tab:Section(sectionConfig)
 		return self.Window:_createSection(self, sectionConfig)
 	end
@@ -2251,6 +2380,11 @@ function XHM:SelectTab(tab, instant)
 	for _, t in ipairs(self._tabs) do
 		local active = (t == tab)
 		t.Page.Visible = active
+		for _, tg in ipairs(self._tags or {}) do
+			if tg.Tab == t then
+				tg:SetVisible(active)
+			end
+		end
 		if active then
 			if #t._subTabs > 0 then
 				t:SetSubListOpen(true)
@@ -4442,6 +4576,469 @@ function XHM:ToggleSearch(open)
 end
 function XHM:IsSearchOpen()
 	return self._searchOpen == true
+end
+function XHM:IsKeyVerified()
+	return self._keyVerified == true
+end
+function XHM:_resolveKeyService(entry)
+	local kind = entry.Type or entry.type
+	if not kind then
+		return nil
+	end
+	local cached = self._keyServiceCache[kind]
+	if not cached then
+		local reg = XHM.KeyServices[kind]
+		if not reg or type(reg.New) ~= "function" then
+			return nil
+		end
+		local ok, svc = pcall(reg.New, entry)
+		if not ok or type(svc) ~= "table" or type(svc.Verify) ~= "function" then
+			return nil
+		end
+		cached = svc
+		self._keyServiceCache[kind] = svc
+	end
+	return cached
+end
+function XHM:_verifyKey(key)
+	local ks = self._keySystem or {}
+	local lastMessage = nil
+	if type(ks.KeyValidator) == "function" then
+		local ok, msg = ks.KeyValidator(tostring(key))
+		if ok then
+			return true, msg or "验证通过"
+		end
+		lastMessage = msg
+	end
+	for _, entry in ipairs(ks.API or {}) do
+		local svc = self:_resolveKeyService(entry)
+		if svc then
+			local ok, msg = svc.Verify(tostring(key))
+			if ok then
+				return true, msg or "验证通过"
+			end
+			lastMessage = msg or lastMessage
+		end
+	end
+	return false, lastMessage or "卡密无效"
+end
+function XHM:_keyGetLink()
+	local ks = self._keySystem or {}
+	if ks.URL and ks.URL ~= "" then
+		return ks.URL
+	end
+	for _, entry in ipairs(ks.API or {}) do
+		local svc = self:_resolveKeyService(entry)
+		if svc and type(svc.Copy) == "function" then
+			local ok, link = pcall(svc.Copy)
+			if ok and type(link) == "string" and link ~= "" then
+				return link
+			end
+		end
+	end
+	return nil
+end
+function XHM:_buildKeyGate()
+	local ks = self._keySystem
+	local gate = {}
+	local overlay = Util.create("Frame", {
+		Name = "KeyGate",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		BorderSizePixel = 0,
+		ZIndex = 30,
+		Parent = self.Screen,
+	})
+	local card = Util.create("Frame", {
+		Name = "Card",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 380, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Theme.Surface,
+		BorderSizePixel = 0,
+		ZIndex = 31,
+		Parent = overlay,
+	})
+	Util.corner(card, 10)
+	Util.stroke(card, Theme.Stroke, 1, 0.35)
+	Util.shadowTwin(card, overlay, {
+		Blur = XHM.Shadow.Window.Blur,
+		Transparency = XHM.Shadow.Window.Transparency,
+		Drop = XHM.Shadow.Window.Drop,
+		Spread = XHM.Shadow.Window.Spread,
+		Radius = 10,
+	}, self._connections)
+	local body = Util.create("Frame", {
+		Name = "Body",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 32,
+		Parent = card,
+	})
+	Util.create("UIListLayout", {
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = body,
+	})
+	Util.create("UIPadding", {
+		PaddingTop = UDim.new(0, 18),
+		PaddingBottom = UDim.new(0, 18),
+		PaddingLeft = UDim.new(0, 18),
+		PaddingRight = UDim.new(0, 18),
+		Parent = body,
+	})
+	local thumbCfg = ks.Thumbnail
+	if type(thumbCfg) == "table" and thumbCfg.Image then
+		local asset = Util.customAsset(thumbCfg.Image)
+		if asset then
+			local thumb = Util.create("ImageLabel", {
+				Name = "Thumbnail",
+				Size = UDim2.new(1, 0, 0, thumbCfg.Height or 120),
+				BackgroundTransparency = 1,
+				Image = asset,
+				ScaleType = (thumbCfg.Fit == "fit") and Enum.ScaleType.Fit or Enum.ScaleType.Crop,
+				LayoutOrder = 0,
+				ZIndex = 33,
+				Parent = body,
+			})
+			Util.corner(thumb, 8)
+		end
+	end
+	local title = Util.create("TextLabel", {
+		Name = "Title",
+		Size = UDim2.new(1, 0, 0, 22),
+		BackgroundTransparency = 1,
+		Text = ks.Title or "卡密验证",
+		TextColor3 = Theme.Text,
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 1,
+		ZIndex = 33,
+		Parent = body,
+	})
+	Util.font(title, "SemiBold")
+	if ks.Note and ks.Note ~= "" then
+		local note = Util.create("TextLabel", {
+			Name = "Note",
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			Text = tostring(ks.Note),
+			TextColor3 = Theme.SubText,
+			TextSize = 12,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			LayoutOrder = 2,
+			ZIndex = 33,
+			Parent = body,
+		})
+		Util.font(note, "Regular")
+	end
+	local inputRow = Util.create("Frame", {
+		Name = "InputRow",
+		Size = UDim2.new(1, 0, 0, 38),
+		BackgroundColor3 = Theme.SurfaceAlt,
+		BackgroundTransparency = 0.1,
+		BorderSizePixel = 0,
+		LayoutOrder = 3,
+		ZIndex = 33,
+		Parent = body,
+	})
+	Util.corner(inputRow, 7)
+	local inputStroke = Util.stroke(inputRow, Theme.Stroke, 1, 0.2)
+	Icons.new(inputRow, "key-round", {
+		Size = UDim2.fromOffset(15, 15),
+		Position = UDim2.new(0, 11, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Color = Theme.Muted,
+	})
+	local input = Util.create("TextBox", {
+		Name = "KeyInput",
+		Position = UDim2.new(0, 34, 0, 0),
+		Size = UDim2.new(1, -44, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		PlaceholderText = ks.Placeholder or "在此输入卡密",
+		PlaceholderColor3 = Theme.Muted,
+		TextColor3 = Theme.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 34,
+		Parent = inputRow,
+	})
+	Util.font(input, "Medium")
+	local submit = Util.create("TextButton", {
+		Name = "Submit",
+		Size = UDim2.new(1, 0, 0, 36),
+		BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0,
+		Text = ks.SubmitText or "验证",
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		TextSize = 13,
+		AutoButtonColor = false,
+		LayoutOrder = 4,
+		ZIndex = 34,
+		Parent = body,
+	})
+	Util.corner(submit, 7)
+	Util.font(submit, "SemiBold")
+	local status = Util.create("TextLabel", {
+		Name = "Status",
+		Size = UDim2.new(1, 0, 0, 16),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Theme.SubText,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 5,
+		ZIndex = 34,
+		Parent = body,
+	})
+	Util.font(status, "Regular")
+	local link = self:_keyGetLink()
+	local getKey = nil
+	if link then
+		getKey = Util.create("TextButton", {
+			Name = "GetKey",
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundColor3 = Theme.SurfaceAlt,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Text = ks.LinkText or "获取卡密（点击复制链接）",
+			TextColor3 = Theme.SubText,
+			TextSize = 12,
+			AutoButtonColor = false,
+			LayoutOrder = 6,
+			ZIndex = 34,
+			Parent = body,
+		})
+		Util.corner(getKey, 7)
+		Util.font(getKey, "Medium")
+	end
+	gate.Overlay = overlay
+	gate.Card = card
+	gate.Input = input
+	gate.Submit = submit
+	gate.Status = status
+	gate.GetKey = getKey
+	self._keyGate = gate
+	local busy = false
+	local function setStatus(text, color)
+		status.Text = tostring(text or "")
+		status.TextColor3 = color or Theme.SubText
+	end
+	local function unlock(message)
+		self._keyVerified = true
+		setStatus(message or "验证通过", Theme.Success)
+		if ks.SaveKey then
+			self:_writeFlag(ks.SaveFlag or "KeySystem", input.Text)
+		end
+		Util.tween(overlay, 0.22, { BackgroundTransparency = 1 })
+		Util.tween(card, 0.22, { Position = UDim2.fromScale(0.5, 0.46) })
+		task.delay(0.24, function()
+			overlay:Destroy()
+			self._keyGate = nil
+			self:SetVisible(true)
+		end)
+	end
+	local function attempt()
+		if busy then
+			return
+		end
+		local key = input.Text
+		if key == nil or key == "" then
+			setStatus("请输入卡密", Theme.Warning)
+			return
+		end
+		busy = true
+		setStatus("校验中…", Theme.Accent)
+		submit.Text = "校验中…"
+		task.spawn(function()
+			local ok, message = self:_verifyKey(key)
+			busy = false
+			submit.Text = ks.SubmitText or "验证"
+			if ok then
+				unlock(message)
+			else
+				setStatus(message or "卡密无效", Theme.Error)
+			end
+		end)
+	end
+	gate.Attempt = attempt
+	submit.MouseButton1Click:Connect(attempt)
+	input.FocusLost:Connect(function(enterPressed)
+		if enterPressed then
+			attempt()
+		end
+	end)
+	input.Focused:Connect(function()
+		Util.tween(inputStroke, 0.15, { Transparency = 0 })
+	end)
+	input:GetPropertyChangedSignal("Text"):Connect(function()
+		if status.Text ~= "" and not busy then
+			setStatus("", Theme.SubText)
+		end
+	end)
+	if getKey then
+		getKey.MouseButton1Click:Connect(function()
+			local copied = false
+			if setclipboard then
+				pcall(function()
+					setclipboard(self:_keyGetLink() or "")
+					copied = true
+				end)
+			end
+			if copied then
+				setStatus("链接已复制，粘贴到浏览器打开", Theme.Success)
+			else
+				setStatus("当前环境不能自动复制，请手动打开：" .. tostring(self:_keyGetLink()),
+					Theme.Warning)
+			end
+		end)
+		getKey.MouseEnter:Connect(function()
+			Util.tween(getKey, 0.12, { BackgroundTransparency = 0.15 })
+		end)
+		getKey.MouseLeave:Connect(function()
+			Util.tween(getKey, 0.12, { BackgroundTransparency = 0.35 })
+		end)
+	end
+	submit.MouseEnter:Connect(function()
+		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.AccentHover })
+	end)
+	submit.MouseLeave:Connect(function()
+		Util.tween(submit, 0.12, { BackgroundColor3 = Theme.Accent })
+	end)
+	return gate
+end
+function XHM:SubmitKey(key)
+	if not self._keyGate and not self._keySystem then
+		return true, "没启用卡密系统"
+	end
+	local ok, message = self:_verifyKey(tostring(key or ""))
+	if ok then
+		self._keyVerified = true
+		if self._keySystem and self._keySystem.SaveKey then
+			self:_writeFlag(self._keySystem.SaveFlag or "KeySystem", tostring(key or ""))
+		end
+		if self._keyGate then
+			local gate = self._keyGate
+			self._keyGate = nil
+			gate.Overlay:Destroy()
+		end
+		self:SetVisible(true)
+	end
+	return ok, message
+end
+function XHM:Tag(cfg)
+	cfg = cfg or {}
+	if not self.TagBar then
+		return nil
+	end
+	local color = cfg.Color or Theme.Accent
+	local tag = {
+		Window = self,
+		Title = cfg.Title or "Tag",
+		Color = color,
+		IconName = cfg.Icon,
+		Tab = cfg.Tab,
+	}
+	local holder = Util.create("Frame", {
+		Name = "Tag_" .. tostring(tag.Title),
+		Size = UDim2.new(0, 0, 0, 20),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = color:Lerp(Theme.Background, 0.86),
+		BorderSizePixel = 0,
+		LayoutOrder = #self._tags + 1,
+		Parent = self.TagBar,
+	})
+	Util.corner(holder, 5)
+	Util.create("UIPadding", {
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
+		Parent = holder,
+	})
+	Util.create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = holder,
+	})
+	if tag.IconName then
+		tag.Icon = Icons.new(holder, tag.IconName, {
+			Size = UDim2.fromOffset(12, 12),
+			Color = color,
+		})
+		tag.Icon.Instance.LayoutOrder = 1
+	end
+	tag.Label = Util.create("TextLabel", {
+		Name = "Label",
+		Size = UDim2.new(0, 0, 0, 14),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1,
+		Text = tag.Title,
+		TextColor3 = color,
+		TextSize = 11,
+		LayoutOrder = 2,
+		Parent = holder,
+	})
+	Util.font(tag.Label, "SemiBold")
+	tag.Instance = holder
+	function tag:SetTitle(text)
+		tag.Title = tostring(text or "")
+		tag.Label.Text = tag.Title
+		return tag
+	end
+	function tag:SetIcon(iconName)
+		if iconName then
+			if not tag.Icon then
+				tag.Icon = Icons.new(holder, iconName, {
+					Size = UDim2.fromOffset(12, 12),
+					Color = tag.Color,
+				})
+				tag.Icon.Instance.LayoutOrder = 1
+			else
+				tag.Icon:set(iconName)
+				tag.Icon:setVisible(true)
+			end
+		elseif tag.Icon then
+			tag.Icon:setVisible(false)
+		end
+		return tag
+	end
+	function tag:SetColor(newColor)
+		newColor = newColor or Theme.Accent
+		tag.Color = newColor
+		Util.tween(holder, 0.18, { BackgroundColor3 = newColor:Lerp(Theme.Background, 0.86) })
+		Util.tween(tag.Label, 0.18, { TextColor3 = newColor })
+		if tag.Icon then
+			tag.Icon:setColor(newColor)
+		end
+		return tag
+	end
+	function tag:SetVisible(visible)
+		holder.Visible = visible and true or false
+		return tag
+	end
+	function tag:IsVisible()
+		return holder.Visible == true
+	end
+	function tag:Destroy()
+		holder:Destroy()
+		for i, t in ipairs(self.Window._tags) do
+			if t == tag then
+				table.remove(self.Window._tags, i)
+				break
+			end
+		end
+	end
+	table.insert(self._tags, tag)
+	return tag
 end
 function XHM:_initSearch()
 	self._registry = self._registry or {}
